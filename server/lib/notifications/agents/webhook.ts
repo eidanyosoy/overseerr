@@ -16,9 +16,11 @@ const KeyMap: Record<string, string | KeyMapFunction> = {
   subject: 'subject',
   message: 'message',
   image: 'image',
-  notifyuser_username: 'notifyUser.username',
+  notifyuser_username: 'notifyUser.displayName',
   notifyuser_email: 'notifyUser.email',
   notifyuser_avatar: 'notifyUser.avatar',
+  notifyuser_settings_discordId: 'notifyUser.settings.discordId',
+  notifyuser_settings_telegramChatId: 'notifyUser.settings.telegramChatId',
   media_tmdbid: 'media.tmdbId',
   media_imdbid: 'media.imdbId',
   media_tvdbid: 'media.tvdbId',
@@ -27,6 +29,13 @@ const KeyMap: Record<string, string | KeyMapFunction> = {
     payload.media?.status ? MediaStatus[payload.media?.status] : '',
   media_status4k: (payload) =>
     payload.media?.status ? MediaStatus[payload.media?.status4k] : '',
+  request_id: 'request.id',
+  requestedBy_username: 'request.requestedBy.displayName',
+  requestedBy_email: 'request.requestedBy.email',
+  requestedBy_avatar: 'request.requestedBy.avatar',
+  requestedBy_settings_discordId: 'request.requestedBy.settings.discordId',
+  requestedBy_settings_telegramChatId:
+    'request.requestedBy.settings.telegramChatId',
 };
 
 class WebhookAgent
@@ -60,6 +69,14 @@ class WebhookAgent
         }
         delete finalPayload[key];
         key = 'media';
+      } else if (key === '{{request}}') {
+        if (payload.request) {
+          finalPayload.request = finalPayload[key];
+        } else {
+          finalPayload.request = null;
+        }
+        delete finalPayload[key];
+        key = 'request';
       }
 
       if (typeof finalPayload[key] === 'string') {
@@ -111,7 +128,12 @@ class WebhookAgent
     type: Notification,
     payload: NotificationPayload
   ): Promise<boolean> {
-    logger.debug('Sending webhook notification', { label: 'Notifications' });
+    logger.debug('Sending webhook notification', {
+      label: 'Notifications',
+      type: Notification[type],
+      subject: payload.subject,
+    });
+
     try {
       const { webhookUrl, authHeader } = this.getSettings().options;
 
@@ -127,10 +149,14 @@ class WebhookAgent
 
       return true;
     } catch (e) {
-      logger.error('Error sending Webhook notification', {
+      logger.error('Error sending webhook notification', {
         label: 'Notifications',
+        type: Notification[type],
+        subject: payload.subject,
         errorMessage: e.message,
+        response: e.response.data,
       });
+
       return false;
     }
   }

@@ -1,8 +1,8 @@
 import React from 'react';
 
 interface AlertProps {
-  title: string;
-  type?: 'warning' | 'info';
+  title?: React.ReactNode;
+  type?: 'warning' | 'info' | 'error';
 }
 
 const Alert: React.FC<AlertProps> = ({ title, children, type }) => {
@@ -51,17 +51,46 @@ const Alert: React.FC<AlertProps> = ({ title, children, type }) => {
         ),
       };
       break;
+    case 'error':
+      design = {
+        bgColor: 'bg-red-600',
+        titleColor: 'text-red-200',
+        textColor: 'text-red-300',
+        svg: (
+          <svg
+            className="w-5 h-5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        ),
+      };
+      break;
   }
 
   return (
-    <div className={`rounded-md p-4 mb-8 ${design.bgColor}`}>
+    <div className={`rounded-md p-4 mb-4 ${design.bgColor}`}>
       <div className="flex">
         <div className={`flex-shrink-0 ${design.titleColor}`}>{design.svg}</div>
         <div className="ml-3">
-          <div className={`text-sm font-medium ${design.titleColor}`}>
-            {title}
-          </div>
-          <div className={`mt-2 text-sm ${design.textColor}`}>{children}</div>
+          {title && (
+            <div className={`text-sm font-medium ${design.titleColor}`}>
+              {title}
+            </div>
+          )}
+          {children && (
+            <div className={`mt-2 first:mt-0 text-sm ${design.textColor}`}>
+              {children}
+            </div>
+          )}
         </div>
       </div>
     </div>

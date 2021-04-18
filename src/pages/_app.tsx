@@ -1,48 +1,55 @@
-import React, { useEffect, useState } from 'react';
-import '../styles/globals.css';
-import App, { AppInitialProps, AppProps } from 'next/app';
-import { SWRConfig } from 'swr';
-import { ToastProvider } from 'react-toast-notifications';
-import { parseCookies, setCookie } from 'nookies';
-import Layout from '../components/Layout';
-import { UserContext } from '../context/UserContext';
 import axios from 'axios';
-import { User } from '../hooks/useUser';
-import { IntlProvider } from 'react-intl';
-import { LanguageContext, AvailableLocales } from '../context/LanguageContext';
+import App, { AppInitialProps, AppProps } from 'next/app';
 import Head from 'next/head';
+import { parseCookies, setCookie } from 'nookies';
+import React, { useEffect, useState } from 'react';
+import { IntlProvider } from 'react-intl';
+import { ToastProvider } from 'react-toast-notifications';
+import { SWRConfig } from 'swr';
+import { PublicSettingsResponse } from '../../server/interfaces/api/settingsInterfaces';
+import Layout from '../components/Layout';
+import LoadingBar from '../components/LoadingBar';
+import StatusChecker from '../components/StatusChacker';
 import Toast from '../components/Toast';
 import { InteractionProvider } from '../context/InteractionContext';
-import StatusChecker from '../components/StatusChacker';
-import { PublicSettingsResponse } from '../../server/interfaces/api/settingsInterfaces';
+import { AvailableLocales, LanguageContext } from '../context/LanguageContext';
 import { SettingsProvider } from '../context/SettingsContext';
+import { UserContext } from '../context/UserContext';
+import { User } from '../hooks/useUser';
+import '../styles/globals.css';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const loadLocaleData = (locale: AvailableLocales): Promise<any> => {
   switch (locale) {
-    case 'ja':
-      return import('../i18n/locale/ja.json');
-    case 'fr':
-      return import('../i18n/locale/fr.json');
-    case 'nb-NO':
-      return import('../i18n/locale/nb_NO.json');
+    case 'ca':
+      return import('../i18n/locale/ca.json');
     case 'de':
       return import('../i18n/locale/de.json');
-    case 'ru':
-      return import('../i18n/locale/ru.json');
-    case 'nl':
-      return import('../i18n/locale/nl.json');
     case 'es':
       return import('../i18n/locale/es.json');
+    case 'fr':
+      return import('../i18n/locale/fr.json');
     case 'it':
       return import('../i18n/locale/it.json');
+    case 'ja':
+      return import('../i18n/locale/ja.json');
+    case 'hu':
+      return import('../i18n/locale/hu.json');
+    case 'nb-NO':
+      return import('../i18n/locale/nb_NO.json');
+    case 'nl':
+      return import('../i18n/locale/nl.json');
     case 'pt-BR':
       return import('../i18n/locale/pt_BR.json');
+    case 'pt-PT':
+      return import('../i18n/locale/pt_PT.json');
+    case 'ru':
+      return import('../i18n/locale/ru.json');
     case 'sr':
       return import('../i18n/locale/sr.json');
     case 'sv':
       return import('../i18n/locale/sv.json');
-    case 'zh-Hant':
+    case 'zh-TW':
       return import('../i18n/locale/zh_Hant.json');
     default:
       return import('../i18n/locale/en.json');
@@ -87,7 +94,7 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
     });
   }, [currentLocale]);
 
-  if (router.pathname.match(/(login|setup)/)) {
+  if (router.pathname.match(/(login|setup|resetpassword)/)) {
     component = <Component {...pageProps} />;
   } else {
     component = (
@@ -109,6 +116,7 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
           defaultLocale="en"
           messages={loadedMessages}
         >
+          <LoadingBar />
           <SettingsProvider currentSettings={currentSettings}>
             <InteractionProvider>
               <ToastProvider components={{ Toast }}>
@@ -116,8 +124,8 @@ const CoreApp: Omit<NextAppComponentType, 'origGetInitialProps'> = ({
                   <title>Overseerr</title>
                   <meta
                     name="viewport"
-                    content="width=device-width, initial-scale=1"
-                  />
+                    content="initial-scale=1, viewport-fit=cover, width=device-width"
+                  ></meta>
                 </Head>
                 <StatusChecker />
                 <UserContext initialUser={user}>{component}</UserContext>
@@ -135,8 +143,15 @@ CoreApp.getInitialProps = async (initialProps) => {
   let user = undefined;
   let currentSettings: PublicSettingsResponse = {
     initialized: false,
+    applicationTitle: '',
+    hideAvailable: false,
     movie4kEnabled: false,
     series4kEnabled: false,
+    localLogin: true,
+    region: '',
+    originalLanguage: '',
+    partialRequestsEnabled: true,
+    cacheImages: false,
   };
 
   let locale = 'en';
@@ -167,7 +182,7 @@ CoreApp.getInitialProps = async (initialProps) => {
         );
         user = response.data;
 
-        if (router.pathname.match(/login/)) {
+        if (router.pathname.match(/(setup|login)/)) {
           ctx.res.writeHead(307, {
             Location: '/',
           });
@@ -177,7 +192,7 @@ CoreApp.getInitialProps = async (initialProps) => {
         // If there is no user, and ctx.res is set (to check if we are on the server side)
         // _AND_ we are not already on the login or setup route, redirect to /login with a 307
         // before anything actually renders
-        if (!router.pathname.match(/(login|setup)/)) {
+        if (!router.pathname.match(/(login|setup|resetpassword)/)) {
           ctx.res.writeHead(307, {
             Location: '/login',
           });

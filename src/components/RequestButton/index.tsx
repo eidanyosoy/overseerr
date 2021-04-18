@@ -1,5 +1,5 @@
 import axios from 'axios';
-import React, { useContext, useState } from 'react';
+import React, { useState } from 'react';
 import { defineMessages, useIntl } from 'react-intl';
 import {
   MediaRequestStatus,
@@ -7,16 +7,15 @@ import {
 } from '../../../server/constants/media';
 import Media from '../../../server/entity/Media';
 import { MediaRequest } from '../../../server/entity/MediaRequest';
-import { SettingsContext } from '../../context/SettingsContext';
+import useSettings from '../../hooks/useSettings';
 import { Permission, useUser } from '../../hooks/useUser';
+import globalMessages from '../../i18n/globalMessages';
 import ButtonWithDropdown from '../Common/ButtonWithDropdown';
 import RequestModal from '../RequestModal';
 
 const messages = defineMessages({
   viewrequest: 'View Request',
   viewrequest4k: 'View 4K Request',
-  request: 'Request',
-  request4k: 'Request 4K',
   requestmore: 'Request More',
   requestmore4k: 'Request More 4K',
   approverequest: 'Approve Request',
@@ -58,7 +57,7 @@ const RequestButton: React.FC<RequestButtonProps> = ({
   is4kShowComplete = false,
 }) => {
   const intl = useIntl();
-  const settings = useContext(SettingsContext);
+  const settings = useSettings();
   const { hasPermission } = useUser();
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [showRequest4kModal, setShowRequest4kModal] = useState(false);
@@ -83,7 +82,7 @@ const RequestButton: React.FC<RequestButtonProps> = ({
     request: MediaRequest,
     type: 'approve' | 'decline'
   ) => {
-    const response = await axios.get(`/api/v1/request/${request.id}/${type}`);
+    const response = await axios.post(`/api/v1/request/${request.id}/${type}`);
 
     if (response) {
       onUpdate();
@@ -100,7 +99,7 @@ const RequestButton: React.FC<RequestButtonProps> = ({
 
     await Promise.all(
       requests.map(async (request) => {
-        return axios.get(`/api/v1/request/${request.id}/${type}`);
+        return axios.post(`/api/v1/request/${request.id}/${type}`);
       })
     );
 
@@ -114,7 +113,7 @@ const RequestButton: React.FC<RequestButtonProps> = ({
   ) {
     buttons.push({
       id: 'request',
-      text: intl.formatMessage(messages.request),
+      text: intl.formatMessage(globalMessages.request),
       action: () => {
         setShowRequestModal(true);
       },
@@ -180,7 +179,7 @@ const RequestButton: React.FC<RequestButtonProps> = ({
   ) {
     buttons.push({
       id: 'request4k',
-      text: intl.formatMessage(messages.request4k),
+      text: intl.formatMessage(globalMessages.request4k),
       action: () => {
         setShowRequest4kModal(true);
       },

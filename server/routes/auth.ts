@@ -23,10 +23,10 @@ authRoutes.get('/me', isAuthenticated(), async (req, res) => {
     where: { id: req.user.id },
   });
 
-  return res.status(200).json(user.filter());
+  return res.status(200).json(user);
 });
 
-authRoutes.post('/login', async (req, res, next) => {
+authRoutes.post('/plex', async (req, res, next) => {
   const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { authToken?: string };
@@ -35,7 +35,7 @@ authRoutes.post('/login', async (req, res, next) => {
     return res.status(500).json({ error: 'You must provide an auth token' });
   }
   try {
-    // First we need to use this auth token to get the users email from plex tv
+    // First we need to use this auth token to get the users email from plex.tv
     const plextv = new PlexTvAPI(body.authToken);
     const account = await plextv.getUser();
 
@@ -45,16 +45,20 @@ authRoutes.post('/login', async (req, res, next) => {
     });
 
     if (user) {
-      // Let's check if their plex token is up to date
+      // Let's check if their Plex token is up-to-date
       if (user.plexToken !== body.authToken) {
         user.plexToken = body.authToken;
-        await userRepository.save(user);
       }
 
-      // Update the users avatar with their plex thumbnail (incase it changed)
+      // Update the user's avatar with their Plex thumbnail, in case it changed
       user.avatar = account.thumb;
       user.email = account.email;
-      user.username = account.username;
+      user.plexUsername = account.username;
+
+      if (user.username === account.username) {
+        user.username = '';
+      }
+      await userRepository.save(user);
     } else {
       // Here we check if it's the first user. If it is, we create the user with no check
       // and give them admin permissions
@@ -63,7 +67,7 @@ authRoutes.post('/login', async (req, res, next) => {
       if (totalUsers === 0) {
         user = new User({
           email: account.email,
-          username: account.username,
+          plexUsername: account.username,
           plexId: account.id,
           plexToken: account.authToken,
           permissions: Permission.ADMIN,
@@ -76,17 +80,17 @@ authRoutes.post('/login', async (req, res, next) => {
       // Double check that we didn't create the first admin user before running this
       if (!user) {
         // If we get to this point, the user does not already exist so we need to create the
-        // user _assuming_ they have access to the plex server
+        // user _assuming_ they have access to the Plex server
         const mainUser = await userRepository.findOneOrFail({
           select: ['id', 'plexToken'],
           order: { id: 'ASC' },
         });
         const mainPlexTv = new PlexTvAPI(mainUser.plexToken ?? '');
 
-        if (await mainPlexTv.checkUserAccess(account)) {
+        if (await mainPlexTv.checkUserAccess(account.id)) {
           user = new User({
             email: account.email,
-            username: account.username,
+            plexUsername: account.username,
             plexId: account.id,
             plexToken: account.authToken,
             permissions: settings.main.defaultPermissions,
@@ -96,7 +100,7 @@ authRoutes.post('/login', async (req, res, next) => {
           await userRepository.save(user);
         } else {
           logger.info(
-            'Failed login attempt from user without access to plex server',
+            'Failed sign-in attempt from user without access to the Plex server.',
             {
               label: 'Auth',
               account: {
@@ -108,7 +112,7 @@ authRoutes.post('/login', async (req, res, next) => {
           );
           return next({
             status: 403,
-            message: 'You do not have access to this Plex server',
+            message: 'You do not have access to this Plex server.',
           });
         }
       }
@@ -130,34 +134,41 @@ authRoutes.post('/login', async (req, res, next) => {
 });
 
 authRoutes.post('/local', async (req, res, next) => {
+  const settings = getSettings();
   const userRepository = getRepository(User);
   const body = req.body as { email?: string; password?: string };
 
-  if (!body.email || !body.password) {
-    return res
-      .status(500)
-      .json({ error: 'You must provide an email and a password' });
+  if (!settings.main.localLogin) {
+    return res.status(500).json({ error: 'Local user sign-in is disabled.' });
+  } else if (!body.email || !body.password) {
+    return res.status(500).json({
+      error: 'You must provide both an email address and a password.',
+    });
   }
   try {
     const user = await userRepository.findOne({
       select: ['id', 'password'],
-      where: { email: body.email, userType: UserType.LOCAL },
+      where: { email: body.email },
     });
 
     const isCorrectCredentials = await user?.passwordMatch(body.password);
 
     // User doesn't exist or credentials are incorrect
     if (!isCorrectCredentials) {
-      logger.info('Failed login attempt from user with incorrect credentials', {
-        label: 'Auth',
-        account: {
-          email: body.email,
-          password: '__REDACTED__',
-        },
-      });
+      logger.info(
+        'Failed sign-in attempt from user with incorrect credentials.',
+        {
+          label: 'Auth',
+          account: {
+            ip: req.ip,
+            email: body.email,
+            password: '__REDACTED__',
+          },
+        }
+      );
       return next({
         status: 403,
-        message: 'You do not have access to this Plex server',
+        message: 'Your sign-in credentials are incorrect.',
       });
     }
 
@@ -168,7 +179,10 @@ authRoutes.post('/local', async (req, res, next) => {
 
     return res.status(200).json(user?.filter() ?? {});
   } catch (e) {
-    logger.error(e.message, { label: 'Auth' });
+    logger.error('Something went wrong while attempting to authenticate.', {
+      label: 'Auth',
+      error: e.message,
+    });
     return next({
       status: 500,
       message: 'Something went wrong.',
@@ -176,17 +190,95 @@ authRoutes.post('/local', async (req, res, next) => {
   }
 });
 
-authRoutes.get('/logout', (req, res, next) => {
+authRoutes.post('/logout', (req, res, next) => {
   req.session?.destroy((err) => {
     if (err) {
       return next({
         status: 500,
-        message: 'Something went wrong while attempting to logout',
+        message: 'Something went wrong while attempting to sign out.',
       });
     }
 
     return res.status(200).json({ status: 'ok' });
   });
+});
+
+authRoutes.post('/reset-password', async (req, res) => {
+  const userRepository = getRepository(User);
+  const body = req.body as { email?: string };
+
+  if (!body.email) {
+    return res
+      .status(500)
+      .json({ error: 'You must provide an email address.' });
+  }
+
+  const user = await userRepository.findOne({
+    where: { email: body.email },
+  });
+
+  if (user) {
+    await user.resetPassword();
+    userRepository.save(user);
+    logger.info('Successful request made for recovery link.', {
+      label: 'User Management',
+      context: { ip: req.ip, email: body.email },
+    });
+  } else {
+    logger.info('Failed request made to reset a password.', {
+      label: 'User Management',
+      context: { ip: req.ip, email: body.email },
+    });
+  }
+
+  return res.status(200).json({ status: 'ok' });
+});
+
+authRoutes.post('/reset-password/:guid', async (req, res, next) => {
+  const userRepository = getRepository(User);
+
+  try {
+    if (!req.body.password || req.body.password?.length < 8) {
+      const message =
+        'Failed to reset password. Password must be at least 8 characters long.';
+      logger.info(message, {
+        label: 'User Management',
+        context: { ip: req.ip, guid: req.params.guid },
+      });
+      return next({ status: 500, message: message });
+    }
+
+    const user = await userRepository.findOne({
+      where: { resetPasswordGuid: req.params.guid },
+    });
+
+    if (!user) {
+      throw new Error('Guid invalid.');
+    }
+
+    if (
+      !user.recoveryLinkExpirationDate ||
+      user.recoveryLinkExpirationDate <= new Date()
+    ) {
+      throw new Error('Recovery link expired.');
+    }
+
+    await user.setPassword(req.body.password);
+    user.recoveryLinkExpirationDate = null;
+    userRepository.save(user);
+    logger.info(`Successfully reset password`, {
+      label: 'User Management',
+      context: { ip: req.ip, guid: req.params.guid, email: user.email },
+    });
+
+    return res.status(200).json({ status: 'ok' });
+  } catch (e) {
+    logger.info(`Failed to reset password. ${e.message}`, {
+      label: 'User Management',
+      context: { ip: req.ip, guid: req.params.guid },
+    });
+    return res.status(200).json({ status: 'ok' });
+  }
 });
 
 export default authRoutes;

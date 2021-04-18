@@ -1,26 +1,25 @@
 import React, { useState } from 'react';
-import useSWR from 'swr';
+import { defineMessages, FormattedRelativeTime, useIntl } from 'react-intl';
 import ReactMarkdown from 'react-markdown';
-import LoadingSpinner from '../../../Common/LoadingSpinner';
+import useSWR from 'swr';
+import globalMessages from '../../../../i18n/globalMessages';
 import Alert from '../../../Common/Alert';
 import Badge from '../../../Common/Badge';
 import Button from '../../../Common/Button';
+import LoadingSpinner from '../../../Common/LoadingSpinner';
 import Modal from '../../../Common/Modal';
 import Transition from '../../../Transition';
-import { defineMessages, FormattedRelativeTime, useIntl } from 'react-intl';
-import globalMessages from '../../../../i18n/globalMessages';
 
 const messages = defineMessages({
   releases: 'Releases',
-  releasedataMissing: 'Release data missing. Is GitHub down?',
+  releasedataMissing: 'Release data unavailable. Is GitHub down?',
   versionChangelog: 'Version Changelog',
   viewongithub: 'View on GitHub',
-  latestversion: 'Latest Version',
+  latestversion: 'Latest',
   currentversion: 'Current Version',
   viewchangelog: 'View Changelog',
-  runningDevelop: 'You are running a develop version of Overseerr!',
   runningDevelopMessage:
-    'The changes in your version will not be available below. Please look at the <GithubLink>GitHub repository</GithubLink> for latest updates.',
+    'The latest changes to the <code>develop</code> branch of Overseerr are not shown below. Please see the commit history for this branch on <GithubLink>GitHub</GithubLink> for details.',
 });
 
 const REPO_RELEASE_API =
@@ -100,25 +99,25 @@ const Release: React.FC<ReleaseProps> = ({
         </Modal>
       </Transition>
       <div className="flex items-center justify-center mb-4 sm:mb-0 sm:justify-start">
-        <span className="mr-2 text-sm">
+        <span className="mt-1 mr-2 text-xs">
           <FormattedRelativeTime
             value={Math.floor(
               (new Date(release.created_at).getTime() - Date.now()) / 1000
             )}
             updateIntervalInSeconds={1}
-            numeric="always"
+            numeric="auto"
           />
         </span>
-        <span className="text-xl">{release.name}</span>
+        <span className="text-lg">{release.name}</span>
         {isLatest && (
-          <span className="ml-2">
+          <span className="ml-2 -mt-1">
             <Badge badgeType="primary">
               {intl.formatMessage(messages.latestversion)}
             </Badge>
           </span>
         )}
         {release.name.includes(currentVersion) && (
-          <span className="ml-2">
+          <span className="ml-2 -mt-1">
             <Badge badgeType="success">
               {intl.formatMessage(messages.currentversion)}
             </Badge>
@@ -156,38 +155,41 @@ const Releases: React.FC<ReleasesProps> = ({ currentVersion }) => {
 
   return (
     <div>
-      <div className="pb-4 mb-4 text-xl border-b border-gray-800">
-        {intl.formatMessage(messages.releases)}
+      <h3 className="heading">{intl.formatMessage(messages.releases)}</h3>
+      <div className="section">
+        {currentVersion.startsWith('develop-') && (
+          <Alert
+            title={intl.formatMessage(messages.runningDevelopMessage, {
+              code: function code(msg) {
+                return <code className="bg-opacity-50">{msg}</code>;
+              },
+              GithubLink: function GithubLink(msg) {
+                return (
+                  <a
+                    href="https://github.com/sct/overseerr"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-yellow-100 underline transition duration-300 hover:text-white"
+                  >
+                    {msg}
+                  </a>
+                );
+              },
+            })}
+          />
+        )}
+        {data?.map((release, index) => {
+          return (
+            <div key={`release-${release.id}`} className="mb-2">
+              <Release
+                release={release}
+                currentVersion={currentVersion}
+                isLatest={index === 0}
+              />
+            </div>
+          );
+        })}
       </div>
-      {currentVersion.startsWith('develop-') && (
-        <Alert title={intl.formatMessage(messages.runningDevelop)}>
-          {intl.formatMessage(messages.runningDevelopMessage, {
-            GithubLink: function GithubLink(msg) {
-              return (
-                <a
-                  href="https://github.com/sct/overseerr"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-yellow-100 underline transition duration-300 hover:text-white"
-                >
-                  {msg}
-                </a>
-              );
-            },
-          })}
-        </Alert>
-      )}
-      {data?.map((release, index) => {
-        return (
-          <div key={`release-${release.id}`} className="mb-2">
-            <Release
-              release={release}
-              currentVersion={currentVersion}
-              isLatest={index === 0}
-            />
-          </div>
-        );
-      })}
     </div>
   );
 };

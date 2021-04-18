@@ -1,4 +1,5 @@
-import { RadarrProfile, RadarrRootFolder } from '../../api/radarr';
+import { QualityProfile, RootFolder, Tag } from '../../api/servarr/base';
+import { LanguageProfile } from '../../api/servarr/sonarr';
 
 export interface ServiceCommonServer {
   id: number;
@@ -7,12 +8,18 @@ export interface ServiceCommonServer {
   isDefault: boolean;
   activeProfileId: number;
   activeDirectory: string;
+  activeLanguageProfileId?: number;
   activeAnimeProfileId?: number;
   activeAnimeDirectory?: string;
+  activeAnimeLanguageProfileId?: number;
+  activeTags: number[];
+  activeAnimeTags?: number[];
 }
 
 export interface ServiceCommonServerWithDetails {
   server: ServiceCommonServer;
-  profiles: RadarrProfile[];
-  rootFolders: Partial<RadarrRootFolder>[];
+  profiles: QualityProfile[];
+  rootFolders: Partial<RootFolder>[];
+  languageProfiles?: LanguageProfile[];
+  tags: Tag[];
 }

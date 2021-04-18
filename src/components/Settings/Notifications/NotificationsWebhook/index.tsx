@@ -1,13 +1,14 @@
-import React from 'react';
+import axios from 'axios';
 import { Field, Form, Formik } from 'formik';
 import dynamic from 'next/dynamic';
-import useSWR from 'swr';
-import LoadingSpinner from '../../../Common/LoadingSpinner';
-import Button from '../../../Common/Button';
+import React from 'react';
 import { defineMessages, useIntl } from 'react-intl';
-import axios from 'axios';
-import * as Yup from 'yup';
 import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import * as Yup from 'yup';
+import globalMessages from '../../../../i18n/globalMessages';
+import Button from '../../../Common/Button';
+import LoadingSpinner from '../../../Common/LoadingSpinner';
 import NotificationTypeSelector from '../../../NotificationTypeSelector';
 
 const JSONEditor = dynamic(() => import('../../../JSONEditor'), { ssr: false });
@@ -29,26 +30,27 @@ const defaultPayload = {
     status4k: '{{media_status4k}}',
   },
   '{{extra}}': [],
+  '{{request}}': {
+    request_id: '{{request_id}}',
+    requestedBy_email: '{{requestedBy_email}}',
+    requestedBy_username: '{{requestedBy_username}}',
+    requestedBy_avatar: '{{requestedBy_avatar}}',
+  },
 };
 
 const messages = defineMessages({
-  save: 'Save Changes',
-  saving: 'Saving...',
-  agentenabled: 'Agent Enabled',
+  agentenabled: 'Enable Agent',
   webhookUrl: 'Webhook URL',
   authheader: 'Authorization Header',
-  validationWebhookUrlRequired: 'You must provide a webhook URL',
-  validationJsonPayloadRequired: 'You must provide a JSON Payload',
-  webhookUrlPlaceholder: 'Remote webhook URL',
-  webhooksettingssaved: 'Webhook notification settings saved!',
+  validationJsonPayloadRequired: 'You must provide a valid JSON payload',
+  webhooksettingssaved: 'Webhook notification settings saved successfully!',
   webhooksettingsfailed: 'Webhook notification settings failed to save.',
-  testsent: 'Test notification sent!',
-  test: 'Test',
-  notificationtypes: 'Notification Types',
-  resetPayload: 'Reset to Default JSON Payload',
-  resetPayloadSuccess: 'JSON reset to default payload.',
-  customJson: 'Custom JSON Payload',
+  testsent: 'Webhook test notification sent!',
+  resetPayload: 'Reset to Default',
+  resetPayloadSuccess: 'JSON payload reset successfully!',
+  customJson: 'JSON Payload',
   templatevariablehelp: 'Template Variable Help',
+  validationWebhookUrl: 'You must provide a valid URL',
 });
 
 const NotificationsWebhook: React.FC = () => {
@@ -59,19 +61,39 @@ const NotificationsWebhook: React.FC = () => {
   );
 
   const NotificationsWebhookSchema = Yup.object().shape({
-    webhookUrl: Yup.string().required(
-      intl.formatMessage(messages.validationWebhookUrlRequired)
-    ),
+    webhookUrl: Yup.string()
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationWebhookUrl)),
+        otherwise: Yup.string().nullable(),
+      })
+      .matches(
+        // eslint-disable-next-line no-useless-escape
+        /^(https?:)?\/\/(((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:)*@)?(((\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5])\.(\d|[1-9]\d|1\d\d|2[0-4]\d|25[0-5]))|(([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*)?([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF]))(:\d*)?)(\/((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)+(\/(([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)*)*)?)?(\?((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|[\uE000-\uF8FF]|\/|\?)*)?(\#((([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])|(%[\da-f]{2})|[!\$&'\(\)\*\+,;=]|:|@)|\/|\?)*)?$/i,
+        intl.formatMessage(messages.validationWebhookUrl)
+      ),
     jsonPayload: Yup.string()
-      .required(intl.formatMessage(messages.validationJsonPayloadRequired))
-      .test('validate-json', 'Invalid JSON', (value) => {
-        try {
-          JSON.parse(value ?? '');
-          return true;
-        } catch (e) {
-          return false;
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationJsonPayloadRequired)),
+        otherwise: Yup.string().nullable(),
+      })
+      .test(
+        'validate-json',
+        intl.formatMessage(messages.validationJsonPayloadRequired),
+        (value) => {
+          try {
+            JSON.parse(value ?? '');
+            return true;
+          } catch (e) {
+            return false;
+          }
         }
-      }),
+      ),
   });
 
   if (!data && !error) {
@@ -151,74 +173,46 @@ const NotificationsWebhook: React.FC = () => {
         };
 
         return (
-          <Form>
-            <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-              <label
-                htmlFor="enabled"
-                className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-              >
+          <Form className="section">
+            <div className="form-row">
+              <label htmlFor="enabled" className="checkbox-label">
                 {intl.formatMessage(messages.agentenabled)}
               </label>
-              <div className="mt-1 sm:mt-0 sm:col-span-2">
-                <Field
-                  type="checkbox"
-                  id="enabled"
-                  name="enabled"
-                  className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                />
+              <div className="form-input">
+                <Field type="checkbox" id="enabled" name="enabled" />
               </div>
             </div>
-            <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-              >
+            <div className="form-row">
+              <label htmlFor="name" className="text-label">
                 {intl.formatMessage(messages.webhookUrl)}
+                <span className="label-required">*</span>
               </label>
-              <div className="mt-1 sm:mt-0 sm:col-span-2">
-                <div className="flex max-w-lg rounded-md shadow-sm">
-                  <Field
-                    id="webhookUrl"
-                    name="webhookUrl"
-                    type="text"
-                    placeholder={intl.formatMessage(
-                      messages.webhookUrlPlaceholder
-                    )}
-                    className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
-                  />
+              <div className="form-input">
+                <div className="form-input-field">
+                  <Field id="webhookUrl" name="webhookUrl" type="text" />
                 </div>
                 {errors.webhookUrl && touched.webhookUrl && (
-                  <div className="mt-2 text-red-500">{errors.webhookUrl}</div>
+                  <div className="error">{errors.webhookUrl}</div>
                 )}
               </div>
             </div>
-            <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-              >
+            <div className="form-row">
+              <label htmlFor="name" className="text-label">
                 {intl.formatMessage(messages.authheader)}
               </label>
-              <div className="mt-1 sm:mt-0 sm:col-span-2">
-                <div className="flex max-w-lg rounded-md shadow-sm">
-                  <Field
-                    id="authHeader"
-                    name="authHeader"
-                    type="text"
-                    className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
-                  />
+              <div className="form-input">
+                <div className="form-input-field">
+                  <Field id="authHeader" name="authHeader" type="text" />
                 </div>
               </div>
             </div>
-            <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-              <label
-                htmlFor="name"
-                className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-              >
+            <div className="form-row">
+              <label htmlFor="name" className="text-label">
                 {intl.formatMessage(messages.customJson)}
+                <span className="label-required">*</span>
               </label>
-              <div className="mt-1 sm:mt-0 sm:col-span-2">
-                <div className="flex max-w-lg rounded-md shadow-sm">
+              <div className="form-input">
+                <div className="form-input-field">
                   <JSONEditor
                     name="webhook-json-payload"
                     onUpdate={(value) => setFieldValue('jsonPayload', value)}
@@ -227,7 +221,7 @@ const NotificationsWebhook: React.FC = () => {
                   />
                 </div>
                 {errors.jsonPayload && touched.jsonPayload && (
-                  <div className="mt-2 text-red-500">{errors.jsonPayload}</div>
+                  <div className="error">{errors.jsonPayload}</div>
                 )}
                 <div className="mt-2">
                   <Button
@@ -275,31 +269,11 @@ const NotificationsWebhook: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="mt-6">
-              <div role="group" aria-labelledby="label-permissions">
-                <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-baseline">
-                  <div>
-                    <div
-                      className="text-base font-medium leading-6 text-gray-400 sm:text-sm sm:leading-5"
-                      id="label-types"
-                    >
-                      {intl.formatMessage(messages.notificationtypes)}
-                    </div>
-                  </div>
-                  <div className="mt-4 sm:mt-0 sm:col-span-2">
-                    <div className="max-w-lg">
-                      <NotificationTypeSelector
-                        currentTypes={values.types}
-                        onUpdate={(newTypes) =>
-                          setFieldValue('types', newTypes)
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="pt-5 mt-8 border-t border-gray-700">
+            <NotificationTypeSelector
+              currentTypes={values.types}
+              onUpdate={(newTypes) => setFieldValue('types', newTypes)}
+            />
+            <div className="actions">
               <div className="flex justify-end">
                 <span className="inline-flex ml-3 rounded-md shadow-sm">
                   <Button
@@ -311,7 +285,7 @@ const NotificationsWebhook: React.FC = () => {
                       testSettings();
                     }}
                   >
-                    {intl.formatMessage(messages.test)}
+                    {intl.formatMessage(globalMessages.test)}
                   </Button>
                 </span>
                 <span className="inline-flex ml-3 rounded-md shadow-sm">
@@ -321,8 +295,8 @@ const NotificationsWebhook: React.FC = () => {
                     disabled={isSubmitting || !isValid}
                   >
                     {isSubmitting
-                      ? intl.formatMessage(messages.saving)
-                      : intl.formatMessage(messages.save)}
+                      ? intl.formatMessage(globalMessages.saving)
+                      : intl.formatMessage(globalMessages.save)}
                   </Button>
                 </span>
               </div>

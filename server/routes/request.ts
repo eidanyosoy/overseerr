@@ -1,77 +1,129 @@
 import { Router } from 'express';
-import { isAuthenticated } from '../middleware/auth';
-import { Permission } from '../lib/permissions';
-import { getRepository, FindOperator, FindOneOptions, In } from 'typeorm';
-import { MediaRequest } from '../entity/MediaRequest';
+import { getRepository } from 'typeorm';
 import TheMovieDb from '../api/themoviedb';
+import { MediaRequestStatus, MediaStatus, MediaType } from '../constants/media';
 import Media from '../entity/Media';
-import { MediaStatus, MediaRequestStatus, MediaType } from '../constants/media';
+import { MediaRequest } from '../entity/MediaRequest';
 import SeasonRequest from '../entity/SeasonRequest';
-import logger from '../logger';
+import { User } from '../entity/User';
 import { RequestResultsResponse } from '../interfaces/api/requestInterfaces';
+import { Permission } from '../lib/permissions';
+import logger from '../logger';
+import { isAuthenticated } from '../middleware/auth';
 
 const requestRoutes = Router();
 
 requestRoutes.get('/', async (req, res, next) => {
-  const requestRepository = getRepository(MediaRequest);
   try {
-    const pageSize = req.query.take ? Number(req.query.take) : 20;
+    const pageSize = req.query.take ? Number(req.query.take) : 10;
     const skip = req.query.skip ? Number(req.query.skip) : 0;
+    const requestedBy = req.query.requestedBy
+      ? Number(req.query.requestedBy)
+      : null;
 
-    let statusFilter:
-      | MediaRequestStatus
-      | FindOperator<string | MediaRequestStatus>
-      | undefined = undefined;
+    let statusFilter: MediaRequestStatus[];
+
+    switch (req.query.filter) {
+      case 'approved':
+      case 'processing':
+      case 'available':
+        statusFilter = [MediaRequestStatus.APPROVED];
+        break;
+      case 'pending':
+        statusFilter = [MediaRequestStatus.PENDING];
+        break;
+      case 'unavailable':
+        statusFilter = [
+          MediaRequestStatus.PENDING,
+          MediaRequestStatus.APPROVED,
+        ];
+        break;
+      default:
+        statusFilter = [
+          MediaRequestStatus.PENDING,
+          MediaRequestStatus.APPROVED,
+          MediaRequestStatus.DECLINED,
+        ];
+    }
+
+    let mediaStatusFilter: MediaStatus[];
 
     switch (req.query.filter) {
       case 'available':
-        statusFilter = MediaRequestStatus.AVAILABLE;
+        mediaStatusFilter = [MediaStatus.AVAILABLE];
         break;
-      case 'approved':
-        statusFilter = MediaRequestStatus.APPROVED;
-        break;
-      case 'pending':
-        statusFilter = MediaRequestStatus.PENDING;
-        break;
+      case 'processing':
       case 'unavailable':
-        statusFilter = In([
-          MediaRequestStatus.PENDING,
-          MediaRequestStatus.APPROVED,
-        ]);
+        mediaStatusFilter = [
+          MediaStatus.UNKNOWN,
+          MediaStatus.PENDING,
+          MediaStatus.PROCESSING,
+          MediaStatus.PARTIALLY_AVAILABLE,
+        ];
         break;
       default:
-        statusFilter = In(Object.values(MediaRequestStatus));
+        mediaStatusFilter = [
+          MediaStatus.UNKNOWN,
+          MediaStatus.PENDING,
+          MediaStatus.PROCESSING,
+          MediaStatus.PARTIALLY_AVAILABLE,
+          MediaStatus.AVAILABLE,
+        ];
     }
 
-    let sortFilter: FindOneOptions<MediaRequest>['order'] = {
-      id: 'DESC',
-    };
+    let sortFilter: string;
 
     switch (req.query.sort) {
       case 'modified':
-        sortFilter = {
-          updatedAt: 'DESC',
-        };
+        sortFilter = 'request.updatedAt';
         break;
+      default:
+        sortFilter = 'request.id';
     }
 
-    const [requests, requestCount] = req.user?.hasPermission(
-      Permission.MANAGE_REQUESTS
-    )
-      ? await requestRepository.findAndCount({
-          order: sortFilter,
-          relations: ['media', 'modifiedBy'],
-          where: { status: statusFilter },
-          take: Number(req.query.take) ?? 20,
-          skip,
-        })
-      : await requestRepository.findAndCount({
-          where: { requestedBy: { id: req.user?.id }, status: statusFilter },
-          relations: ['media', 'modifiedBy'],
-          order: sortFilter,
-          take: Number(req.query.limit) ?? 20,
-          skip,
+    let query = getRepository(MediaRequest)
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.media', 'media')
+      .leftJoinAndSelect('request.seasons', 'seasons')
+      .leftJoinAndSelect('request.modifiedBy', 'modifiedBy')
+      .leftJoinAndSelect('request.requestedBy', 'requestedBy')
+      .where('request.status IN (:...requestStatus)', {
+        requestStatus: statusFilter,
+      })
+      .andWhere(
+        '((request.is4k = 0 AND media.status IN (:...mediaStatus)) OR (request.is4k = 1 AND media.status4k IN (:...mediaStatus)))',
+        {
+          mediaStatus: mediaStatusFilter,
+        }
+      );
+
+    if (
+      !req.user?.hasPermission(
+        [Permission.MANAGE_REQUESTS, Permission.REQUEST_VIEW],
+        { type: 'or' }
+      )
+    ) {
+      if (requestedBy && requestedBy !== req.user?.id) {
+        return next({
+          status: 403,
+          message: "You do not have permission to view this user's requests.",
         });
+      }
+
+      query = query.andWhere('requestedBy.id = :id', {
+        id: req.user?.id,
+      });
+    } else if (requestedBy) {
+      query = query.andWhere('requestedBy.id = :id', {
+        id: requestedBy,
+      });
+    }
+
+    const [requests, requestCount] = await query
+      .orderBy(sortFilter, 'DESC')
+      .take(pageSize)
+      .skip(skip)
+      .getManyAndCount();
 
     return res.status(200).json({
       pageInfo: {
@@ -94,10 +146,51 @@ requestRoutes.post(
     const tmdb = new TheMovieDb();
     const mediaRepository = getRepository(Media);
     const requestRepository = getRepository(MediaRequest);
+    const userRepository = getRepository(User);
 
     try {
+      let requestUser = req.user;
+
+      if (
+        req.body.userId &&
+        !req.user?.hasPermission([
+          Permission.MANAGE_USERS,
+          Permission.MANAGE_REQUESTS,
+        ])
+      ) {
+        return next({
+          status: 403,
+          message: 'You do not have permission to modify the request user.',
+        });
+      } else if (req.body.userId) {
+        requestUser = await userRepository.findOneOrFail({
+          where: { id: req.body.userId },
+        });
+      }
+
+      if (!requestUser) {
+        return next({
+          status: 500,
+          message: 'User missing from request context.',
+        });
+      }
+
+      const quotas = await requestUser.getQuota();
+
+      if (req.body.mediaType === MediaType.MOVIE && quotas.movie.restricted) {
+        return next({
+          status: 403,
+          message: 'Movie Quota Exceeded',
+        });
+      } else if (req.body.mediaType === MediaType.TV && quotas.tv.restricted) {
+        return next({
+          status: 403,
+          message: 'Series Quota Exceeded',
+        });
+      }
+
       const tmdbMedia =
-        req.body.mediaType === 'movie'
+        req.body.mediaType === MediaType.MOVIE
           ? await tmdb.getMovie({ movieId: req.body.mediaId })
           : await tmdb.getTvShow({ tvId: req.body.mediaId });
 
@@ -109,49 +202,88 @@ requestRoutes.post(
       if (!media) {
         media = new Media({
           tmdbId: tmdbMedia.id,
-          tvdbId: tmdbMedia.external_ids.tvdb_id,
+          tvdbId: req.body.tvdbId ?? tmdbMedia.external_ids.tvdb_id,
           status: !req.body.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
           status4k: req.body.is4k ? MediaStatus.PENDING : MediaStatus.UNKNOWN,
           mediaType: req.body.mediaType,
         });
-        await mediaRepository.save(media);
       } else {
         if (media.status === MediaStatus.UNKNOWN && !req.body.is4k) {
           media.status = MediaStatus.PENDING;
-          await mediaRepository.save(media);
         }
 
         if (media.status4k === MediaStatus.UNKNOWN && req.body.is4k) {
           media.status4k = MediaStatus.PENDING;
-          await mediaRepository.save(media);
         }
       }
 
-      if (req.body.mediaType === 'movie') {
+      if (req.body.mediaType === MediaType.MOVIE) {
+        const existing = await requestRepository.findOne({
+          where: {
+            media: {
+              tmdbId: tmdbMedia.id,
+            },
+            requestedBy: req.user,
+            is4k: req.body.is4k,
+          },
+        });
+
+        if (existing) {
+          logger.warn('Duplicate request for media blocked', {
+            tmdbId: tmdbMedia.id,
+            mediaType: req.body.mediaType,
+          });
+          return next({
+            status: 409,
+            message: 'Request for this media already exists.',
+          });
+        }
+
+        await mediaRepository.save(media);
+
         const request = new MediaRequest({
           type: MediaType.MOVIE,
           media,
-          requestedBy: req.user,
+          requestedBy: requestUser,
           // If the user is an admin or has the "auto approve" permission, automatically approve the request
-          status:
-            req.user?.hasPermission(Permission.AUTO_APPROVE) ||
-            req.user?.hasPermission(Permission.AUTO_APPROVE_MOVIE)
-              ? MediaRequestStatus.APPROVED
-              : MediaRequestStatus.PENDING,
-          modifiedBy:
-            req.user?.hasPermission(Permission.AUTO_APPROVE) ||
-            req.user?.hasPermission(Permission.AUTO_APPROVE_MOVIE)
-              ? req.user
-              : undefined,
+          status: req.user?.hasPermission(
+            [
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K
+                : Permission.AUTO_APPROVE,
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K_MOVIE
+                : Permission.AUTO_APPROVE_MOVIE,
+              Permission.MANAGE_REQUESTS,
+            ],
+            { type: 'or' }
+          )
+            ? MediaRequestStatus.APPROVED
+            : MediaRequestStatus.PENDING,
+          modifiedBy: req.user?.hasPermission(
+            [
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K
+                : Permission.AUTO_APPROVE,
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K_MOVIE
+                : Permission.AUTO_APPROVE_MOVIE,
+              Permission.MANAGE_REQUESTS,
+            ],
+            { type: 'or' }
+          )
+            ? req.user
+            : undefined,
           is4k: req.body.is4k,
           serverId: req.body.serverId,
           profileId: req.body.profileId,
           rootFolder: req.body.rootFolder,
+          tags: req.body.tags,
         });
 
         await requestRepository.save(request);
         return res.status(201).json(request);
-      } else if (req.body.mediaType === 'tv') {
+      } else if (req.body.mediaType === MediaType.TV) {
         const requestedSeasons = req.body.seasons as number[];
         let existingSeasons: number[] = [];
 
@@ -185,36 +317,65 @@ requestRoutes.post(
           });
         }
 
+        await mediaRepository.save(media);
+
         const request = new MediaRequest({
           type: MediaType.TV,
-          media: {
-            id: media.id,
-          } as Media,
-          requestedBy: req.user,
+          media,
+          requestedBy: requestUser,
           // If the user is an admin or has the "auto approve" permission, automatically approve the request
-          status:
-            req.user?.hasPermission(Permission.AUTO_APPROVE) ||
-            req.user?.hasPermission(Permission.AUTO_APPROVE_TV)
-              ? MediaRequestStatus.APPROVED
-              : MediaRequestStatus.PENDING,
-          modifiedBy:
-            req.user?.hasPermission(Permission.AUTO_APPROVE) ||
-            req.user?.hasPermission(Permission.AUTO_APPROVE_TV)
-              ? req.user
-              : undefined,
+          status: req.user?.hasPermission(
+            [
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K
+                : Permission.AUTO_APPROVE,
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K_TV
+                : Permission.AUTO_APPROVE_TV,
+              Permission.MANAGE_REQUESTS,
+            ],
+            { type: 'or' }
+          )
+            ? MediaRequestStatus.APPROVED
+            : MediaRequestStatus.PENDING,
+          modifiedBy: req.user?.hasPermission(
+            [
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K
+                : Permission.AUTO_APPROVE,
+              req.body.is4k
+                ? Permission.AUTO_APPROVE_4K_TV
+                : Permission.AUTO_APPROVE_TV,
+              Permission.MANAGE_REQUESTS,
+            ],
+            { type: 'or' }
+          )
+            ? req.user
+            : undefined,
           is4k: req.body.is4k,
           serverId: req.body.serverId,
           profileId: req.body.profileId,
           rootFolder: req.body.rootFolder,
+          languageProfileId: req.body.languageProfileId,
+          tags: req.body.tags,
           seasons: finalSeasons.map(
             (sn) =>
               new SeasonRequest({
                 seasonNumber: sn,
-                status:
-                  req.user?.hasPermission(Permission.AUTO_APPROVE) ||
-                  req.user?.hasPermission(Permission.AUTO_APPROVE_TV)
-                    ? MediaRequestStatus.APPROVED
-                    : MediaRequestStatus.PENDING,
+                status: req.user?.hasPermission(
+                  [
+                    req.body.is4k
+                      ? Permission.AUTO_APPROVE_4K
+                      : Permission.AUTO_APPROVE,
+                    req.body.is4k
+                      ? Permission.AUTO_APPROVE_4K_TV
+                      : Permission.AUTO_APPROVE_TV,
+                    Permission.MANAGE_REQUESTS,
+                  ],
+                  { type: 'or' }
+                )
+                  ? MediaRequestStatus.APPROVED
+                  : MediaRequestStatus.PENDING,
               })
           ),
         });
@@ -234,16 +395,51 @@ requestRoutes.get('/count', async (_req, res, next) => {
   const requestRepository = getRepository(MediaRequest);
 
   try {
-    const pendingCount = await requestRepository.count({
-      status: MediaRequestStatus.PENDING,
-    });
-    const approvedCount = await requestRepository.count({
-      status: MediaRequestStatus.APPROVED,
-    });
+    const query = requestRepository
+      .createQueryBuilder('request')
+      .leftJoinAndSelect('request.media', 'media');
+
+    const pendingCount = await query
+      .where('request.status = :requestStatus', {
+        requestStatus: MediaRequestStatus.PENDING,
+      })
+      .getCount();
+
+    const approvedCount = await query
+      .where('request.status = :requestStatus', {
+        requestStatus: MediaRequestStatus.APPROVED,
+      })
+      .getCount();
+
+    const processingCount = await query
+      .where('request.status = :requestStatus', {
+        requestStatus: MediaRequestStatus.APPROVED,
+      })
+      .andWhere(
+        '(request.is4k = false AND media.status != :availableStatus) OR (request.is4k = true AND media.status4k != :availableStatus)',
+        {
+          availableStatus: MediaStatus.AVAILABLE,
+        }
+      )
+      .getCount();
+
+    const availableCount = await query
+      .where('request.status = :requestStatus', {
+        requestStatus: MediaRequestStatus.APPROVED,
+      })
+      .andWhere(
+        '(request.is4k = false AND media.status = :availableStatus) OR (request.is4k = true AND media.status4k = :availableStatus)',
+        {
+          availableStatus: MediaStatus.AVAILABLE,
+        }
+      )
+      .getCount();
 
     return res.status(200).json({
       pending: pendingCount,
       approved: approvedCount,
+      processing: processingCount,
+      available: availableCount,
     });
   } catch (e) {
     next({ status: 500, message: e.message });
@@ -270,6 +466,7 @@ requestRoutes.put<{ requestId: string }>(
   isAuthenticated(Permission.MANAGE_REQUESTS),
   async (req, res, next) => {
     const requestRepository = getRepository(MediaRequest);
+    const userRepository = getRepository(User);
     try {
       const request = await requestRepository.findOne(
         Number(req.params.requestId)
@@ -279,17 +476,41 @@ requestRoutes.put<{ requestId: string }>(
         return next({ status: 404, message: 'Request not found' });
       }
 
-      if (req.body.mediaType === 'movie') {
+      let requestUser = req.user;
+
+      if (
+        req.body.userId &&
+        !(
+          req.user?.hasPermission(Permission.MANAGE_USERS) &&
+          req.user?.hasPermission(Permission.MANAGE_REQUESTS)
+        )
+      ) {
+        return next({
+          status: 403,
+          message: 'You do not have permission to modify the request user.',
+        });
+      } else if (req.body.userId) {
+        requestUser = await userRepository.findOneOrFail({
+          where: { id: req.body.userId },
+        });
+      }
+
+      if (req.body.mediaType === MediaType.MOVIE) {
         request.serverId = req.body.serverId;
         request.profileId = req.body.profileId;
         request.rootFolder = req.body.rootFolder;
+        request.tags = req.body.tags;
+        request.requestedBy = requestUser as User;
 
         requestRepository.save(request);
-      } else if (req.body.mediaType === 'tv') {
+      } else if (req.body.mediaType === MediaType.TV) {
         const mediaRepository = getRepository(Media);
         request.serverId = req.body.serverId;
         request.profileId = req.body.profileId;
         request.rootFolder = req.body.rootFolder;
+        request.languageProfileId = req.body.languageProfileId;
+        request.tags = req.body.tags;
+        request.requestedBy = requestUser as User;
 
         const requestedSeasons = req.body.seasons as number[] | undefined;
 
@@ -422,7 +643,7 @@ requestRoutes.post<{
   }
 );
 
-requestRoutes.get<{
+requestRoutes.post<{
   requestId: string;
   status: 'pending' | 'approve' | 'decline';
 }>(

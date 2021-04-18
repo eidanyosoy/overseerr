@@ -1,31 +1,36 @@
 import { Router } from 'express';
-import {
-  getSettings,
-  RadarrSettings,
-  SonarrSettings,
-  Library,
-  MainSettings,
-} from '../../lib/settings';
-import { getRepository } from 'typeorm';
-import { User } from '../../entity/User';
-import PlexAPI from '../../api/plexapi';
-import { jobPlexFullSync } from '../../job/plexsync';
-import SonarrAPI from '../../api/sonarr';
-import RadarrAPI from '../../api/radarr';
-import logger from '../../logger';
-import { scheduledJobs } from '../../job/schedule';
-import { Permission } from '../../lib/permissions';
-import { isAuthenticated } from '../../middleware/auth';
+import rateLimit from 'express-rate-limit';
+import fs from 'fs';
 import { merge, omit } from 'lodash';
+import path from 'path';
+import { getRepository } from 'typeorm';
+import PlexAPI from '../../api/plexapi';
+import PlexTvAPI from '../../api/plextv';
 import Media from '../../entity/Media';
 import { MediaRequest } from '../../entity/MediaRequest';
+import { User } from '../../entity/User';
+import {
+  LogMessage,
+  LogsResultsResponse,
+  SettingsAboutResponse,
+} from '../../interfaces/api/settingsInterfaces';
+import { scheduledJobs } from '../../job/schedule';
+import cacheManager, { AvailableCacheIds } from '../../lib/cache';
+import { Permission } from '../../lib/permissions';
+import { plexFullScanner } from '../../lib/scanners/plex';
+import { getSettings, Library, MainSettings } from '../../lib/settings';
+import logger from '../../logger';
+import { isAuthenticated } from '../../middleware/auth';
 import { getAppVersion } from '../../utils/appVersion';
-import { SettingsAboutResponse } from '../../interfaces/api/settingsInterfaces';
 import notificationRoutes from './notifications';
+import radarrRoutes from './radarr';
+import sonarrRoutes from './sonarr';
 
 const settingsRoutes = Router();
 
 settingsRoutes.use('/notifications', notificationRoutes);
+settingsRoutes.use('/radarr', radarrRoutes);
+settingsRoutes.use('/sonarr', sonarrRoutes);
 
 const filteredMainSettings = (
   user: User,
@@ -57,7 +62,7 @@ settingsRoutes.post('/main', (req, res) => {
   return res.status(200).json(settings.main);
 });
 
-settingsRoutes.get('/main/regenerate', (req, res, next) => {
+settingsRoutes.post('/main/regenerate', (req, res, next) => {
   const settings = getSettings();
 
   const main = settings.regenerateApiKey();
@@ -106,6 +111,60 @@ settingsRoutes.post('/plex', async (req, res, next) => {
   return res.status(200).json(settings.plex);
 });
 
+settingsRoutes.get('/plex/devices/servers', async (req, res, next) => {
+  const userRepository = getRepository(User);
+  try {
+    const admin = await userRepository.findOneOrFail({
+      select: ['id', 'plexToken'],
+      order: { id: 'ASC' },
+    });
+    const plexTvClient = admin.plexToken
+      ? new PlexTvAPI(admin.plexToken)
+      : null;
+    const devices = (await plexTvClient?.getDevices())?.filter((device) => {
+      return device.provides.includes('server') && device.owned;
+    });
+    const settings = getSettings();
+
+    if (devices) {
+      await Promise.all(
+        devices.map(async (device) => {
+          await Promise.all(
+            device.connection.map(async (connection) => {
+              const plexDeviceSettings = {
+                ...settings.plex,
+                ip: connection.address,
+                port: connection.port,
+                useSsl: !connection.local && connection.protocol === 'https',
+              };
+              const plexClient = new PlexAPI({
+                plexToken: admin.plexToken,
+                plexSettings: plexDeviceSettings,
+                timeout: 5000,
+              });
+
+              try {
+                await plexClient.getStatus();
+                connection.status = 200;
+                connection.message = 'OK';
+              } catch (e) {
+                connection.status = 500;
+                connection.message = e.message;
+              }
+            })
+          );
+        })
+      );
+    }
+    return res.status(200).json(devices);
+  } catch (e) {
+    return next({
+      status: 500,
+      message: `Failed to connect to Plex: ${e.message}`,
+    });
+  }
+});
+
 settingsRoutes.get('/plex/library', async (req, res) => {
   const settings = getSettings();
 
@@ -150,278 +209,181 @@ settingsRoutes.get('/plex/library', async (req, res) => {
   return res.status(200).json(settings.plex.libraries);
 });
 
-settingsRoutes.get('/plex/sync', (req, res) => {
-  if (req.query.cancel) {
-    jobPlexFullSync.cancel();
-  } else if (req.query.start) {
-    jobPlexFullSync.run();
+settingsRoutes.get('/plex/sync', (_req, res) => {
+  return res.status(200).json(plexFullScanner.status());
+});
+
+settingsRoutes.post('/plex/sync', (req, res) => {
+  if (req.body.cancel) {
+    plexFullScanner.cancel();
+  } else if (req.body.start) {
+    plexFullScanner.run();
   }
-
-  return res.status(200).json(jobPlexFullSync.status());
+  return res.status(200).json(plexFullScanner.status());
 });
 
-settingsRoutes.get('/radarr', (_req, res) => {
-  const settings = getSettings();
+settingsRoutes.get(
+  '/logs',
+  rateLimit({ windowMs: 60 * 1000, max: 50 }),
+  (req, res, next) => {
+    const pageSize = req.query.take ? Number(req.query.take) : 25;
+    const skip = req.query.skip ? Number(req.query.skip) : 0;
 
-  res.status(200).json(settings.radarr);
-});
+    let filter: string[] = [];
+    switch (req.query.filter) {
+      case 'debug':
+        filter.push('debug');
+      // falls through
+      case 'info':
+        filter.push('info');
+      // falls through
+      case 'warn':
+        filter.push('warn');
+      // falls through
+      case 'error':
+        filter.push('error');
+        break;
+      default:
+        filter = ['debug', 'info', 'warn', 'error'];
+    }
 
-settingsRoutes.post('/radarr', (req, res) => {
-  const settings = getSettings();
+    const logFile = process.env.CONFIG_DIRECTORY
+      ? `${process.env.CONFIG_DIRECTORY}/logs/overseerr.log`
+      : path.join(__dirname, '../../../config/logs/overseerr.log');
+    const logs: LogMessage[] = [];
 
-  const newRadarr = req.body as RadarrSettings;
-  const lastItem = settings.radarr[settings.radarr.length - 1];
-  newRadarr.id = lastItem ? lastItem.id + 1 : 0;
+    try {
+      fs.readFileSync(logFile)
+        .toString()
+        .split('\n')
+        .forEach((line) => {
+          if (!line.length) return;
 
-  // If we are setting this as the default, clear any previous defaults for the same type first
-  // ex: if is4k is true, it will only remove defaults for other servers that have is4k set to true
-  // and are the default
-  if (req.body.isDefault) {
-    settings.radarr
-      .filter((radarrInstance) => radarrInstance.is4k === req.body.is4k)
-      .forEach((radarrInstance) => {
-        radarrInstance.isDefault = false;
+          const timestamp = line.match(new RegExp(/^.{24}/)) || [];
+          const level = line.match(new RegExp(/\s\[\w+\]/)) || [];
+          const label = line.match(new RegExp(/\]\[.+?\]/)) || [];
+          const message = line.match(new RegExp(/:\s([^{}]+)({.*})?/)) || [];
+
+          if (level.length && filter.includes(level[0].slice(2, -1))) {
+            logs.push({
+              timestamp: timestamp[0],
+              level: level.length ? level[0].slice(2, -1) : '',
+              label: label.length ? label[0].slice(2, -1) : '',
+              message: message.length && message[1] ? message[1] : '',
+              data:
+                message.length && message[2]
+                  ? JSON.parse(message[2])
+                  : undefined,
+            });
+          }
+        });
+
+      const displayedLogs = logs.reverse().slice(skip, skip + pageSize);
+
+      return res.status(200).json({
+        pageInfo: {
+          pages: Math.ceil(logs.length / pageSize),
+          pageSize,
+          results: logs.length,
+          page: Math.ceil(skip / pageSize) + 1,
+        },
+        results: displayedLogs,
+      } as LogsResultsResponse);
+    } catch (error) {
+      logger.error('Something went wrong while fetching the logs', {
+        label: 'Logs',
+        errorMessage: error.message,
       });
-  }
-
-  settings.radarr = [...settings.radarr, newRadarr];
-  settings.save();
-
-  return res.status(201).json(newRadarr);
-});
-
-settingsRoutes.post('/radarr/test', async (req, res, next) => {
-  try {
-    const radarr = new RadarrAPI({
-      apiKey: req.body.apiKey,
-      url: `${req.body.useSsl ? 'https' : 'http'}://${req.body.hostname}:${
-        req.body.port
-      }${req.body.baseUrl ?? ''}/api`,
-    });
-
-    const profiles = await radarr.getProfiles();
-    const folders = await radarr.getRootFolders();
-
-    return res.status(200).json({
-      profiles,
-      rootFolders: folders.map((folder) => ({
-        id: folder.id,
-        path: folder.path,
-      })),
-    });
-  } catch (e) {
-    logger.error('Failed to test Radarr', {
-      label: 'Radarr',
-      message: e.message,
-    });
-
-    next({ status: 500, message: 'Failed to connect to Radarr' });
-  }
-});
-
-settingsRoutes.put<{ id: string }>('/radarr/:id', (req, res) => {
-  const settings = getSettings();
-
-  const radarrIndex = settings.radarr.findIndex(
-    (r) => r.id === Number(req.params.id)
-  );
-
-  if (radarrIndex === -1) {
-    return res
-      .status(404)
-      .json({ status: '404', message: 'Settings instance not found' });
-  }
-
-  // If we are setting this as the default, clear any previous defaults for the same type first
-  // ex: if is4k is true, it will only remove defaults for other servers that have is4k set to true
-  // and are the default
-  if (req.body.isDefault) {
-    settings.radarr
-      .filter((radarrInstance) => radarrInstance.is4k === req.body.is4k)
-      .forEach((radarrInstance) => {
-        radarrInstance.isDefault = false;
+      return next({
+        status: 500,
+        message: 'Something went wrong while fetching the logs',
       });
+    }
   }
-
-  settings.radarr[radarrIndex] = {
-    ...req.body,
-    id: Number(req.params.id),
-  } as RadarrSettings;
-  settings.save();
-
-  return res.status(200).json(settings.radarr[radarrIndex]);
-});
-
-settingsRoutes.get<{ id: string }>('/radarr/:id/profiles', async (req, res) => {
-  const settings = getSettings();
-
-  const radarrSettings = settings.radarr.find(
-    (r) => r.id === Number(req.params.id)
-  );
-
-  if (!radarrSettings) {
-    return res
-      .status(404)
-      .json({ status: '404', message: 'Settings instance not found' });
-  }
-
-  const radarr = new RadarrAPI({
-    apiKey: radarrSettings.apiKey,
-    url: `${radarrSettings.useSsl ? 'https' : 'http'}://${
-      radarrSettings.hostname
-    }:${radarrSettings.port}${radarrSettings.baseUrl ?? ''}/api`,
-  });
-
-  const profiles = await radarr.getProfiles();
-
-  return res.status(200).json(
-    profiles.map((profile) => ({
-      id: profile.id,
-      name: profile.name,
-    }))
-  );
-});
-
-settingsRoutes.delete<{ id: string }>('/radarr/:id', (req, res) => {
-  const settings = getSettings();
-
-  const radarrIndex = settings.radarr.findIndex(
-    (r) => r.id === Number(req.params.id)
-  );
-
-  if (radarrIndex === -1) {
-    return res
-      .status(404)
-      .json({ status: '404', message: 'Settings instance not found' });
-  }
-
-  const removed = settings.radarr.splice(radarrIndex, 1);
-  settings.save();
-
-  return res.status(200).json(removed[0]);
-});
-
-settingsRoutes.get('/sonarr', (_req, res) => {
-  const settings = getSettings();
-
-  res.status(200).json(settings.sonarr);
-});
-
-settingsRoutes.post('/sonarr', (req, res) => {
-  const settings = getSettings();
-
-  const newSonarr = req.body as SonarrSettings;
-  const lastItem = settings.sonarr[settings.sonarr.length - 1];
-  newSonarr.id = lastItem ? lastItem.id + 1 : 0;
-
-  // If we are setting this as the default, clear any previous defaults for the same type first
-  // ex: if is4k is true, it will only remove defaults for other servers that have is4k set to true
-  // and are the default
-  if (req.body.isDefault) {
-    settings.sonarr
-      .filter((sonarrInstance) => sonarrInstance.is4k === req.body.is4k)
-      .forEach((sonarrInstance) => {
-        sonarrInstance.isDefault = false;
-      });
-  }
-
-  settings.sonarr = [...settings.sonarr, newSonarr];
-  settings.save();
-
-  return res.status(201).json(newSonarr);
-});
-
-settingsRoutes.post('/sonarr/test', async (req, res, next) => {
-  try {
-    const sonarr = new SonarrAPI({
-      apiKey: req.body.apiKey,
-      url: `${req.body.useSsl ? 'https' : 'http'}://${req.body.hostname}:${
-        req.body.port
-      }${req.body.baseUrl ?? ''}/api`,
-    });
-
-    const profiles = await sonarr.getProfiles();
-    const folders = await sonarr.getRootFolders();
-
-    return res.status(200).json({
-      profiles,
-      rootFolders: folders.map((folder) => ({
-        id: folder.id,
-        path: folder.path,
-      })),
-    });
-  } catch (e) {
-    logger.error('Failed to test Sonarr', {
-      label: 'Sonarr',
-      message: e.message,
-    });
-
-    next({ status: 500, message: 'Failed to connect to Sonarr' });
-  }
-});
-
-settingsRoutes.put<{ id: string }>('/sonarr/:id', (req, res) => {
-  const settings = getSettings();
-
-  const sonarrIndex = settings.sonarr.findIndex(
-    (r) => r.id === Number(req.params.id)
-  );
-
-  if (sonarrIndex === -1) {
-    return res
-      .status(404)
-      .json({ status: '404', message: 'Settings instance not found' });
-  }
-
-  // If we are setting this as the default, clear any previous defaults for the same type first
-  // ex: if is4k is true, it will only remove defaults for other servers that have is4k set to true
-  // and are the default
-  if (req.body.isDefault) {
-    settings.sonarr
-      .filter((sonarrInstance) => sonarrInstance.is4k === req.body.is4k)
-      .forEach((sonarrInstance) => {
-        sonarrInstance.isDefault = false;
-      });
-  }
-
-  settings.sonarr[sonarrIndex] = {
-    ...req.body,
-    id: Number(req.params.id),
-  } as SonarrSettings;
-  settings.save();
-
-  return res.status(200).json(settings.sonarr[sonarrIndex]);
-});
-
-settingsRoutes.delete<{ id: string }>('/sonarr/:id', (req, res) => {
-  const settings = getSettings();
-
-  const sonarrIndex = settings.sonarr.findIndex(
-    (r) => r.id === Number(req.params.id)
-  );
-
-  if (sonarrIndex === -1) {
-    return res
-      .status(404)
-      .json({ status: '404', message: 'Settings instance not found' });
-  }
-
-  const removed = settings.sonarr.splice(sonarrIndex, 1);
-  settings.save();
-
-  return res.status(200).json(removed[0]);
-});
+);
 
 settingsRoutes.get('/jobs', (_req, res) => {
   return res.status(200).json(
     scheduledJobs.map((job) => ({
+      id: job.id,
       name: job.name,
+      type: job.type,
       nextExecutionTime: job.job.nextInvocation(),
+      running: job.running ? job.running() : false,
     }))
   );
 });
 
-settingsRoutes.get(
+settingsRoutes.post<{ jobId: string }>('/jobs/:jobId/run', (req, res, next) => {
+  const scheduledJob = scheduledJobs.find((job) => job.id === req.params.jobId);
+
+  if (!scheduledJob) {
+    return next({ status: 404, message: 'Job not found' });
+  }
+
+  scheduledJob.job.invoke();
+
+  return res.status(200).json({
+    id: scheduledJob.id,
+    name: scheduledJob.name,
+    type: scheduledJob.type,
+    nextExecutionTime: scheduledJob.job.nextInvocation(),
+    running: scheduledJob.running ? scheduledJob.running() : false,
+  });
+});
+
+settingsRoutes.post<{ jobId: string }>(
+  '/jobs/:jobId/cancel',
+  (req, res, next) => {
+    const scheduledJob = scheduledJobs.find(
+      (job) => job.id === req.params.jobId
+    );
+
+    if (!scheduledJob) {
+      return next({ status: 404, message: 'Job not found' });
+    }
+
+    if (scheduledJob.cancelFn) {
+      scheduledJob.cancelFn();
+    }
+
+    return res.status(200).json({
+      id: scheduledJob.id,
+      name: scheduledJob.name,
+      type: scheduledJob.type,
+      nextExecutionTime: scheduledJob.job.nextInvocation(),
+      running: scheduledJob.running ? scheduledJob.running() : false,
+    });
+  }
+);
+
+settingsRoutes.get('/cache', (req, res) => {
+  const caches = cacheManager.getAllCaches();
+
+  return res.status(200).json(
+    Object.values(caches).map((cache) => ({
+      id: cache.id,
+      name: cache.name,
+      stats: cache.getStats(),
+    }))
+  );
+});
+
+settingsRoutes.post<{ cacheId: AvailableCacheIds }>(
+  '/cache/:cacheId/flush',
+  (req, res, next) => {
+    const cache = cacheManager.getCache(req.params.cacheId);
+
+    if (cache) {
+      cache.flush();
+      return res.status(204).send();
+    }
+
+    next({ status: 404, message: 'Cache does not exist.' });
+  }
+);
+
+settingsRoutes.post(
   '/initialize',
   isAuthenticated(Permission.ADMIN),
   (_req, res) => {

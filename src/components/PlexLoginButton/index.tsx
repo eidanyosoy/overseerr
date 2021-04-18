@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import PlexOAuth from '../../utils/plex';
 import { defineMessages, useIntl } from 'react-intl';
+import globalMessages from '../../i18n/globalMessages';
+import PlexOAuth from '../../utils/plex';
 
 const messages = defineMessages({
-  loginwithplex: 'Login with Plex',
-  loading: 'Loading...',
-  loggingin: 'Logging in...',
+  signinwithplex: 'Sign In',
+  signingin: 'Signing in…',
 });
 
 const plexOAuth = new PlexOAuth();
@@ -49,10 +49,10 @@ const PlexLoginButton: React.FC<PlexLoginButtonProps> = ({
         className="plex-button"
       >
         {loading
-          ? intl.formatMessage(messages.loading)
+          ? intl.formatMessage(globalMessages.loading)
           : isProcessing
-          ? intl.formatMessage(messages.loggingin)
-          : intl.formatMessage(messages.loginwithplex)}
+          ? intl.formatMessage(messages.signingin)
+          : intl.formatMessage(messages.signinwithplex)}
       </button>
     </span>
   );

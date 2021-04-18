@@ -1,30 +1,59 @@
-import React, { useState } from 'react';
-import SearchInput from './SearchInput';
-import UserDropdown from './UserDropdown';
-import Sidebar from './Sidebar';
-import LanguagePicker from './LanguagePicker';
 import { useRouter } from 'next/router';
-import { defineMessages, FormattedMessage } from 'react-intl';
+import React, { useEffect, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { Permission, useUser } from '../../hooks/useUser';
+import LanguagePicker from './LanguagePicker';
+import SearchInput from './SearchInput';
+import Sidebar from './Sidebar';
+import UserDropdown from './UserDropdown';
 
 const messages = defineMessages({
-  alphawarning:
-    'This is ALPHA software. Almost everything is bound to be nearly broken and/or unstable. Please report issues to the Overseerr Github!',
+  betawarning:
+    'This is BETA software. Features may be broken and/or unstable. Please report any issues on GitHub!',
 });
 
 const Layout: React.FC = ({ children }) => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [isScrolled, setIsScrolled] = useState(false);
   const { hasPermission } = useUser();
   const router = useRouter();
+  const intl = useIntl();
+
+  useEffect(() => {
+    const updateScrolled = () => {
+      if (window.pageYOffset > 60) {
+        setIsScrolled(true);
+      } else {
+        setIsScrolled(false);
+      }
+    };
+
+    window.addEventListener('scroll', updateScrolled, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', updateScrolled);
+    };
+  }, []);
 
   return (
     <div className="flex h-full min-w-0 min-h-full bg-gray-900">
+      <div className="absolute top-0 w-full h-64 from-gray-800 to-gray-900 bg-gradient-to-bl">
+        <div className="relative inset-0 w-full h-full from-gray-900 to-transparent bg-gradient-to-t" />
+      </div>
       <Sidebar open={isSidebarOpen} setClosed={() => setSidebarOpen(false)} />
 
       <div className="relative flex flex-col flex-1 w-0 min-w-0 mb-16 md:ml-64">
-        <div className="fixed left-0 right-0 z-10 flex flex-shrink-0 h-16 bg-gray-600 shadow md:left-64">
+        <div
+          className={`searchbar fixed left-0 right-0 top-0 z-10 flex flex-shrink-0 bg-opacity-80 transition duration-300 ${
+            isScrolled ? 'bg-gray-700' : 'bg-transparent'
+          } md:left-64`}
+          style={{
+            backdropFilter: isScrolled ? 'blur(5px)' : undefined,
+            WebkitBackdropFilter: isScrolled ? 'blur(5px)' : undefined,
+          }}
+        >
           <button
-            className="px-4 text-gray-200 border-r border-gray-800 focus:outline-none focus:bg-gray-300 focus:text-gray-600 md:hidden"
+            className="px-4 text-gray-200 focus:outline-none focus:bg-gray-300 focus:text-gray-600 md:hidden"
             aria-label="Open sidebar"
             onClick={() => setSidebarOpen(true)}
           >
@@ -42,9 +71,9 @@ const Layout: React.FC = ({ children }) => {
               />
             </svg>
           </button>
-          <div className="flex justify-between flex-1 px-4">
+          <div className="flex justify-between flex-1 pr-4 md:pr-4 md:pl-4">
             <SearchInput />
-            <div className="flex items-center md:ml-6">
+            <div className="flex items-center ml-2">
               <LanguagePicker />
               <UserDropdown />
             </div>
@@ -52,10 +81,10 @@ const Layout: React.FC = ({ children }) => {
         </div>
 
         <main className="relative z-0 top-16 focus:outline-none" tabIndex={0}>
-          <div className="pt-2 pb-6">
+          <div className="mb-6">
             <div className="px-4 mx-auto max-w-8xl">
               {router.pathname === '/' && hasPermission(Permission.ADMIN) && (
-                <div className="p-4 mt-2 bg-indigo-700 rounded-md">
+                <div className="p-4 mt-6 bg-indigo-700 rounded-md">
                   <div className="flex">
                     <div className="flex-shrink-0">
                       <svg
@@ -73,7 +102,7 @@ const Layout: React.FC = ({ children }) => {
                     </div>
                     <div className="flex-1 ml-3 md:flex md:justify-between">
                       <p className="text-sm leading-5 text-white">
-                        <FormattedMessage {...messages.alphawarning} />
+                        {intl.formatMessage(messages.betawarning)}
                       </p>
                       <p className="mt-3 text-sm leading-5 md:mt-0 md:ml-6">
                         <a

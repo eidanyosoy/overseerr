@@ -1,11 +1,11 @@
-import React, { useState, useRef, useContext } from 'react';
-import Transition from '../../Transition';
-import useClickOutside from '../../../hooks/useClickOutside';
+import React, { useContext, useRef, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import {
-  LanguageContext,
   AvailableLocales,
+  LanguageContext,
 } from '../../../context/LanguageContext';
-import { FormattedMessage, defineMessages } from 'react-intl';
+import useClickOutside from '../../../hooks/useClickOutside';
+import Transition from '../../Transition';
 
 const messages = defineMessages({
   changelanguage: 'Change Language',
@@ -17,61 +17,74 @@ type AvailableLanguageObject = Record<
 >;
 
 const availableLanguages: AvailableLanguageObject = {
+  ca: {
+    code: 'ca',
+    display: 'Català',
+  },
+  de: {
+    code: 'de',
+    display: 'Deutsch',
+  },
   en: {
     code: 'en',
     display: 'English',
   },
-  ja: {
-    code: 'ja',
-    display: 'Japanese',
+  es: {
+    code: 'es',
+    display: 'Español',
   },
   fr: {
     code: 'fr',
     display: 'Français',
   },
-  'nb-NO': {
-    code: 'nb-NO',
-    display: 'Norwegian Bokmål',
+  it: {
+    code: 'it',
+    display: 'Italiano',
   },
-  de: {
-    code: 'de',
-    display: 'German',
-  },
-  ru: {
-    code: 'ru',
-    display: 'Russian',
+  hu: {
+    code: 'hu',
+    display: 'Magyar',
   },
   nl: {
     code: 'nl',
     display: 'Nederlands',
   },
-  es: {
-    code: 'es',
-    display: 'Spanish',
-  },
-  it: {
-    code: 'it',
-    display: 'Italian',
+  'nb-NO': {
+    code: 'nb-NO',
+    display: 'Norsk Bokmål',
   },
   'pt-BR': {
     code: 'pt-BR',
-    display: 'Portuguese (Brazil)',
+    display: 'Português (Brasil)',
   },
-  sr: {
-    code: 'sr',
-    display: 'Serbian',
+  'pt-PT': {
+    code: 'pt-PT',
+    display: 'Português (Portugal)',
   },
   sv: {
     code: 'sv',
-    display: 'Swedish',
+    display: 'Svenska',
   },
-  'zh-Hant': {
-    code: 'zh-Hant',
-    display: 'Chinese (Traditional)',
+  ru: {
+    code: 'ru',
+    display: 'pусский',
+  },
+  sr: {
+    code: 'sr',
+    display: 'српски језик‬',
+  },
+  ja: {
+    code: 'ja',
+    display: '日本語',
+  },
+  'zh-TW': {
+    code: 'zh-TW',
+    display: '中文（臺灣）',
   },
 };
 
 const LanguagePicker: React.FC = () => {
+  const intl = useIntl();
   const dropdownRef = useRef<HTMLDivElement>(null);
   const { locale, setLocale } = useContext(LanguageContext);
   const [isDropdownOpen, setDropdownOpen] = useState(false);
@@ -81,7 +94,9 @@ const LanguagePicker: React.FC = () => {
     <div className="relative">
       <div>
         <button
-          className="p-1 text-gray-400 rounded-full hover:bg-gray-500 hover:text-white focus:outline-none focus:ring focus:text-white"
+          className={`p-1 rounded-full sm:p-2 hover:bg-gray-600 hover:text-white focus:outline-none focus:bg-gray-600 focus:ring-1 focus:ring-gray-500 focus:text-white ${
+            isDropdownOpen ? 'bg-gray-600 text-white' : 'text-gray-400'
+          }`}
           aria-label="Language Picker"
           onClick={() => setDropdownOpen(true)}
         >
@@ -109,20 +124,20 @@ const LanguagePicker: React.FC = () => {
         leaveTo="transform opacity-0 scale-95"
       >
         <div
-          className="absolute right-0 w-48 mt-2 origin-top-right rounded-md shadow-lg"
+          className="absolute right-0 w-56 mt-2 origin-top-right rounded-md shadow-lg"
           ref={dropdownRef}
         >
-          <div className="px-2 py-2 bg-gray-700 rounded-md ring-1 ring-black ring-opacity-5">
+          <div className="px-3 py-2 bg-gray-700 rounded-md ring-1 ring-black ring-opacity-5">
             <div>
               <label
                 htmlFor="language"
                 className="block pb-2 text-sm font-medium leading-5 text-gray-300"
               >
-                <FormattedMessage {...messages.changelanguage} />
+                {intl.formatMessage(messages.changelanguage)}
               </label>
               <select
                 id="language"
-                className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 text-white bg-gray-700 border-gray-600 form-select focus:outline-none focus:ring-indigo focus:border-blue-800 sm:text-sm sm:leading-5"
+                className="rounded-md"
                 onChange={(e) =>
                   setLocale && setLocale(e.target.value as AvailableLocales)
                 }
