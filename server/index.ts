@@ -5,6 +5,7 @@ import { createConnection, getRepository } from 'typeorm';
 import routes from './routes';
 import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
+import csurf from 'csurf';
 import session, { Store } from 'express-session';
 import { TypeormStore } from 'connect-typeorm/out';
 import YAML from 'yamljs';
@@ -23,6 +24,7 @@ import SlackAgent from './lib/notifications/agents/slack';
 import PushoverAgent from './lib/notifications/agents/pushover';
 import WebhookAgent from './lib/notifications/agents/webhook';
 import { getClientIp } from '@supercharge/request-ip';
+import PushbulletAgent from './lib/notifications/agents/pushbullet';
 
 const API_SPEC_PATH = path.join(__dirname, '../overseerr-api.yml');
 
@@ -50,9 +52,10 @@ app
     notificationManager.registerAgents([
       new DiscordAgent(),
       new EmailAgent(),
+      new PushbulletAgent(),
+      new PushoverAgent(),
       new SlackAgent(),
       new TelegramAgent(),
-      new PushoverAgent(),
       new WebhookAgent(),
     ]);
 
@@ -60,6 +63,9 @@ app
     startJobs();
 
     const server = express();
+    if (settings.main.trustProxy) {
+      server.enable('trust proxy');
+    }
     server.use(cookieParser());
     server.use(bodyParser.json());
     server.use(bodyParser.urlencoded({ extended: true }));
@@ -78,8 +84,26 @@ app
         next();
       }
     });
+    if (settings.main.csrfProtection) {
+      server.use(
+        csurf({
+          cookie: {
+            httpOnly: true,
+            sameSite: true,
+            secure: !dev,
+          },
+        })
+      );
+      server.use((req, res, next) => {
+        res.cookie('XSRF-TOKEN', req.csrfToken(), {
+          sameSite: true,
+          secure: !dev,
+        });
+        next();
+      });
+    }
 
-    // Setup sessions
+    // Set up sessions
     const sessionRespository = getRepository(Session);
     server.use(
       '/api',

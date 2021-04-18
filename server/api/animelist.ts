@@ -8,11 +8,13 @@ const UPDATE_INTERVAL_MSEC = 24 * 3600 * 1000; // how often to download new mapp
 // originally at https://raw.githubusercontent.com/ScudLee/anime-lists/master/anime-list.xml
 const MAPPING_URL =
   'https://raw.githubusercontent.com/Anime-Lists/anime-lists/master/anime-list.xml';
-const LOCAL_PATH = path.join(__dirname, '../../config/anime-list.xml');
+const LOCAL_PATH = process.env.CONFIG_DIRECTORY
+  ? `${process.env.CONFIG_DIRECTORY}/anime-list.xml`
+  : path.join(__dirname, '../../config/anime-list.xml');
 
 const mappingRegexp = new RegExp(/;[0-9]+-([0-9]+)/g);
 
-// Anime-List xml files are community maintained mappings that Hama agent uses to map AniDB IDs to tvdb/tmdb IDs
+// Anime-List xml files are community maintained mappings that Hama agent uses to map AniDB IDs to TVDB/TMDb IDs
 // https://github.com/Anime-Lists/anime-lists/
 
 interface AnimeMapping {
@@ -125,7 +127,7 @@ class AnimeListMapping {
             }
           } else {
             // some movies do not have mapping-list, so map episode 1,2,3,..to movies
-            // movies must have imdbid or tmdbid
+            // movies must have imdbId or tmdbId
             const hasImdb = imdbIds.length > 1 || imdbIds[0] !== undefined;
             if ((hasImdb || tmdbId) && anime.$.defaulttvdbseason === '0') {
               if (!this.specials[tvdbId]) {

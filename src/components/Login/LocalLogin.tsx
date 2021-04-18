@@ -1,18 +1,21 @@
+import { LoginIcon, SupportIcon } from '@heroicons/react/outline';
+import axios from 'axios';
+import { Field, Form, Formik } from 'formik';
+import Link from 'next/link';
 import React, { useState } from 'react';
 import { defineMessages, useIntl } from 'react-intl';
-import Button from '../Common/Button';
-import { Field, Form, Formik } from 'formik';
 import * as Yup from 'yup';
-import axios from 'axios';
+import Button from '../Common/Button';
 
 const messages = defineMessages({
   email: 'Email Address',
   password: 'Password',
-  validationemailrequired: 'Not a valid email address',
-  validationpasswordrequired: 'Password required',
-  loginerror: 'Something went wrong when trying to sign in',
+  validationemailrequired: 'You must provide a valid email address',
+  validationpasswordrequired: 'You must provide a password',
+  loginerror: 'Something went wrong while trying to sign in.',
   signingin: 'Signing in…',
-  signin: 'Sign in',
+  signin: 'Sign In',
+  forgotpassword: 'Forgot Password?',
 });
 
 interface LocalLoginProps {
@@ -57,60 +60,62 @@ const LocalLogin: React.FC<LocalLoginProps> = ({ revalidate }) => {
           <>
             <Form>
               <div className="sm:border-t sm:border-gray-800">
-                <label
-                  htmlFor="email"
-                  className="block my-1 text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+                <label htmlFor="email" className="text-label">
                   {intl.formatMessage(messages.email)}
                 </label>
                 <div className="mt-1 mb-2 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input-field">
                     <Field
                       id="email"
                       name="email"
                       type="text"
                       placeholder="name@example.com"
-                      className="text-white flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.email && touched.email && (
-                    <div className="mt-2 text-red-500">{errors.email}</div>
+                    <div className="error">{errors.email}</div>
                   )}
                 </div>
-                <label
-                  htmlFor="password"
-                  className="block my-1 text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+                <label htmlFor="password" className="text-label">
                   {intl.formatMessage(messages.password)}
                 </label>
                 <div className="mt-1 mb-2 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input-field">
                     <Field
                       id="password"
                       name="password"
                       type="password"
+                      autoComplete="current-password"
                       placeholder={intl.formatMessage(messages.password)}
-                      className="text-white flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.password && touched.password && (
-                    <div className="mt-2 text-red-500">{errors.password}</div>
+                    <div className="error">{errors.password}</div>
                   )}
                 </div>
                 {loginError && (
                   <div className="mt-1 mb-2 sm:mt-0 sm:col-span-2">
-                    <div className="mt-2 text-red-500">{loginError}</div>
+                    <div className="error">{loginError}</div>
                   </div>
                 )}
               </div>
               <div className="pt-5 mt-8 border-t border-gray-700">
-                <div className="flex justify-end">
-                  <span className="inline-flex ml-3 rounded-md shadow-sm">
+                <div className="flex justify-between">
+                  <span className="inline-flex rounded-md shadow-sm">
+                    <Link href="/resetpassword" passHref>
+                      <Button as="a" buttonType="ghost">
+                        <SupportIcon className="w-5 h-5 mr-1" />
+                        {intl.formatMessage(messages.forgotpassword)}
+                      </Button>
+                    </Link>
+                  </span>
+                  <span className="inline-flex rounded-md shadow-sm">
                     <Button
                       buttonType="primary"
                       type="submit"
                       disabled={isSubmitting || !isValid}
                     >
+                      <LoginIcon className="w-5 h-5 mr-1" />
                       {isSubmitting
                         ? intl.formatMessage(messages.signingin)
                         : intl.formatMessage(messages.signin)}

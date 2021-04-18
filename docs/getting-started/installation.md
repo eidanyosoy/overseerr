@@ -1,7 +1,7 @@
 # Installation
 
 {% hint style="danger" %}
-Overseerr is currently under very heavy, rapid development and things are likely to break often. We need all the help we can get to find bugs and get them fixed to hit a more stable release. If you would like to help test the bleeding edge, please use the image **`sctx/overseerr:develop`** instead!
+Overseerr is currently in beta. If you would like to help test the bleeding edge, please use the image **`sctx/overseerr:develop`**!
 {% endhint %}
 
 {% hint style="info" %}
@@ -15,6 +15,7 @@ After running Overseerr for the first time, configure it by visiting the web UI 
 
 ```bash
 docker run -d \
+  --name overseerr \
   -e LOG_LEVEL=info \
   -e TZ=Asia/Tokyo \
   -p 5055:5055 \
@@ -25,10 +26,35 @@ docker run -d \
 
 {% endtab %}
 
+{% tab title="Compose" %}
+
+**docker-compose.yml:**
+
+```yaml
+---
+version: '3'
+
+services:
+  overseerr:
+    image: sctx/overseerr:latest
+    container_name: overseerr
+    environment:
+      - LOG_LEVEL=info
+      - TZ=Asia/Tokyo
+    ports:
+      - 5055:5055
+    volumes:
+      - /path/to/appdata/config:/app/config
+    restart: unless-stopped
+```
+
+{% endtab %}
+
 {% tab title="UID/GID" %}
 
 ```text
 docker run -d \
+  --name overseerr \
   --user=[ user | user:group | uid | uid:gid | user:gid | uid:group ] \
   -e LOG_LEVEL=info \
   -e TZ=Asia/Tokyo \
@@ -42,7 +68,7 @@ docker run -d \
 
 {% tab title="Manual Update" %}
 
-```text
+```bash
 # Stop the Overseerr container
 docker stop overseerr
 
@@ -90,7 +116,7 @@ Docker on Windows works differently than it does on Linux; it uses a VM to run a
 ## Linux
 
 {% hint style="info" %}
-The [Overseerr snap](https://snapcraft.io/overseerr) is the only supported linux install method. Currently, the listening port cannot be changed. Port `5055` will need to be available on your host. To install snapd please refer to [Installing snapd](https://snapcraft.io/docs/installing-snapd).
+The [Overseerr snap](https://snapcraft.io/overseerr) is the only officially supported Linux install method aside from [Docker](#docker). Currently, the listening port cannot be changed, so port `5055` will need to be available on your host. To install `snapd`, please refer to the [Snapcraft documentation](https://snapcraft.io/docs/installing-snapd).
 {% endhint %}
 
 **To install:**
@@ -116,7 +142,7 @@ sudo snap install overseerr --edge
 This version can break any moment. Be prepared to troubleshoot any issues that arise!
 {% endhint %}
 
-## Third Party
+## Third-Party
 
 {% tabs %}
 
@@ -163,7 +189,12 @@ This version can break any moment. Be prepared to troubleshoot any issues that a
 {% endtab %}
 
 {% tab title="Swizzin" %}
-The installation is not implemented via docker, but barebones. The latest released version of overseerr will be used.
+
+{% hint style="danger" %}
+This implementation is not yet merged to master due to missing functionality. You can beta test the limited implementation or follow the status on [the pull request](https://github.com/swizzin/swizzin/pull/567).
+{% endhint %}
+
+The installation is not implemented via Docker, but barebones. The latest release version of Overseerr will be used.
 Please see the [swizzin documentation](https://swizzin.ltd/applications/overseerr) for more information.
 
 To install, run the following:

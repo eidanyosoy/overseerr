@@ -1,10 +1,10 @@
-import nodemailer from 'nodemailer';
 import Email from 'email-templates';
-import { getSettings } from '../settings';
-class PreparedEmail extends Email {
-  public constructor() {
-    const settings = getSettings().notifications.agents.email;
+import nodemailer from 'nodemailer';
+import { NotificationAgentEmail } from '../settings';
+import { openpgpEncrypt } from './openpgpEncrypt';
 
+class PreparedEmail extends Email {
+  public constructor(settings: NotificationAgentEmail, pgpKey?: string) {
     const transport = nodemailer.createTransport({
       host: settings.options.smtpHost,
       port: settings.options.smtpPort,
@@ -22,6 +22,16 @@ class PreparedEmail extends Email {
             }
           : undefined,
     });
+    if (pgpKey) {
+      transport.use(
+        'stream',
+        openpgpEncrypt({
+          signingKey: settings.options.pgpPrivateKey,
+          password: settings.options.pgpPassword,
+          encryptionKeys: [pgpKey],
+        })
+      );
+    }
     super({
       message: {
         from: {

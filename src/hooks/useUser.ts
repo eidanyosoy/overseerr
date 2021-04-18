@@ -1,31 +1,56 @@
 import useSwr from 'swr';
-import { hasPermission, Permission } from '../../server/lib/permissions';
+import { MutatorCallback } from 'swr/dist/types';
 import { UserType } from '../../server/constants/user';
+import {
+  hasPermission,
+  Permission,
+  PermissionCheckOptions,
+} from '../../server/lib/permissions';
+
+export { Permission, UserType };
+export type { PermissionCheckOptions };
 
 export interface User {
   id: number;
-  username: string;
+  plexUsername?: string;
+  username?: string;
+  displayName: string;
   email: string;
   avatar: string;
   permissions: number;
   userType: number;
+  createdAt: Date;
+  updatedAt: Date;
+  requestCount: number;
+  settings?: UserSettings;
 }
 
-export { Permission, UserType };
+export interface UserSettings {
+  discordId?: string;
+  region?: string;
+  originalLanguage?: string;
+}
 
 interface UserHookResponse {
   user?: User;
   loading: boolean;
   error: string;
   revalidate: () => Promise<boolean>;
-  hasPermission: (permission: Permission | Permission[]) => boolean;
+  mutate: (
+    data?: User | Promise<User> | MutatorCallback<User> | undefined,
+    shouldRevalidate?: boolean | undefined
+  ) => Promise<User | undefined>;
+  hasPermission: (
+    permission: Permission | Permission[],
+    options?: PermissionCheckOptions
+  ) => boolean;
 }
 
 export const useUser = ({
   id,
   initialData,
 }: { id?: number; initialData?: User } = {}): UserHookResponse => {
-  const { data, error, revalidate } = useSwr<User>(
+  const { data, error, revalidate, mutate } = useSwr<User>(
     id ? `/api/v1/user/${id}` : `/api/v1/auth/me`,
     {
       initialData,
@@ -35,8 +60,11 @@ export const useUser = ({
     }
   );
 
-  const checkPermission = (permission: Permission | Permission[]): boolean => {
-    return hasPermission(permission, data?.permissions ?? 0);
+  const checkPermission = (
+    permission: Permission | Permission[],
+    options?: PermissionCheckOptions
+  ): boolean => {
+    return hasPermission(permission, data?.permissions ?? 0, options);
   };
 
   return {
@@ -45,5 +73,6 @@ export const useUser = ({
     error,
     revalidate,
     hasPermission: checkPermission,
+    mutate,
   };
 };

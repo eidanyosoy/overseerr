@@ -1,12 +1,12 @@
 import React, { MouseEvent, ReactNode, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import Button, { ButtonType } from '../Button';
-import { useLockBodyScroll } from '../../../hooks/useLockBodyScroll';
-import LoadingSpinner from '../LoadingSpinner';
-import useClickOutside from '../../../hooks/useClickOutside';
 import { useIntl } from 'react-intl';
+import useClickOutside from '../../../hooks/useClickOutside';
+import { useLockBodyScroll } from '../../../hooks/useLockBodyScroll';
 import globalMessages from '../../../i18n/globalMessages';
 import Transition from '../../Transition';
+import Button, { ButtonType } from '../Button';
+import LoadingSpinner from '../LoadingSpinner';
 
 interface ModalProps {
   title?: string;
@@ -98,11 +98,14 @@ const Modal: React.FC<ModalProps> = ({
         show={!loading}
       >
         <div
-          className="inline-block w-full max-h-full px-4 pt-5 pb-4 overflow-auto text-left align-bottom transition-all transform bg-gray-700 shadow-xl sm:rounded-lg sm:my-8 sm:align-middle sm:max-w-3xl"
+          className="relative inline-block w-full px-4 pt-5 pb-4 overflow-auto text-left align-bottom transition-all transform bg-gray-700 shadow-xl sm:rounded-lg sm:my-8 sm:align-middle sm:max-w-3xl"
           role="dialog"
           aria-modal="true"
           aria-labelledby="modal-headline"
           ref={modalRef}
+          style={{
+            maxHeight: 'calc(100% - env(safe-area-inset-top) * 2)',
+          }}
         >
           <div className="sm:flex sm:items-center">
             {iconSvg && (
@@ -112,7 +115,7 @@ const Modal: React.FC<ModalProps> = ({
             )}
             <div
               className={`mt-3 text-center sm:mt-0 sm:text-left ${
-                iconSvg ? 'sm:ml-4' : 'mb-6'
+                iconSvg ? 'sm:ml-4' : 'sm:mb-4'
               }`}
             >
               {title && (

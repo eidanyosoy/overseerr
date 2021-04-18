@@ -1,45 +1,39 @@
-import React, { useCallback, useState, useEffect } from 'react';
-import Modal from '../Common/Modal';
-import { useUser } from '../../hooks/useUser';
-import { Permission } from '../../../server/lib/permissions';
-import { defineMessages, useIntl } from 'react-intl';
-import { MediaRequest } from '../../../server/entity/MediaRequest';
-import useSWR from 'swr';
-import { MovieDetails } from '../../../server/models/Movie';
-import { useToasts } from 'react-toast-notifications';
+import { DownloadIcon } from '@heroicons/react/outline';
 import axios from 'axios';
+import React, { useCallback, useEffect, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
+import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
 import {
-  MediaStatus,
   MediaRequestStatus,
+  MediaStatus,
 } from '../../../server/constants/media';
-import DownloadIcon from '../../assets/download.svg';
-import Alert from '../Common/Alert';
-import AdvancedRequester, { RequestOverrides } from './AdvancedRequester';
+import { MediaRequest } from '../../../server/entity/MediaRequest';
+import { QuotaResponse } from '../../../server/interfaces/api/userInterfaces';
+import { Permission } from '../../../server/lib/permissions';
+import { MovieDetails } from '../../../server/models/Movie';
+import { useUser } from '../../hooks/useUser';
 import globalMessages from '../../i18n/globalMessages';
+import Alert from '../Common/Alert';
+import Modal from '../Common/Modal';
+import AdvancedRequester, { RequestOverrides } from './AdvancedRequester';
+import QuotaDisplay from './QuotaDisplay';
 
 const messages = defineMessages({
-  requestadmin:
-    'Your request will be immediately approved. Do you wish to continue?',
-  cancelrequest:
-    'This will remove your request. Are you sure you want to continue?',
-  requestSuccess: '<strong>{title}</strong> successfully requested!',
-  requestCancel: 'Request for <strong>{title}</strong> cancelled',
+  requestadmin: 'This request will be approved automatically.',
+  requestSuccess: '<strong>{title}</strong> requested successfully!',
+  requestCancel: 'Request for <strong>{title}</strong> canceled.',
   requesttitle: 'Request {title}',
   request4ktitle: 'Request {title} in 4K',
-  close: 'Close',
   cancel: 'Cancel Request',
-  cancelling: 'Cancelling...',
-  pendingrequest: 'Pending request for {title}',
-  pending4krequest: 'Pending request for {title} in 4K',
-  requesting: 'Requesting...',
-  request: 'Request',
-  request4k: 'Request 4K',
-  requestfrom: 'There is currently a pending request from {username}',
-  request4kfrom: 'There is currently a pending 4K request from {username}',
-  errorediting: 'Something went wrong editing the request.',
-  requestedited: 'Request edited.',
-  autoapproval: 'Auto Approval',
-  requesterror: 'Something went wrong when trying to request media.',
+  pendingrequest: 'Pending Request for {title}',
+  pending4krequest: 'Pending Request for {title} in 4K',
+  requestfrom: 'There is currently a pending request from {username}.',
+  request4kfrom: 'There is currently a pending 4K request from {username}.',
+  errorediting: 'Something went wrong while editing the request.',
+  requestedited: 'Request for <strong>{title}</strong> edited successfully!',
+  requesterror: 'Something went wrong while submitting the request.',
+  pendingapproval: 'Your request is pending approval.',
 });
 
 interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -70,6 +64,9 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
   });
   const intl = useIntl();
   const { user, hasPermission } = useUser();
+  const { data: quota } = useSWR<QuotaResponse>(
+    user ? `/api/v1/user/${requestOverrides?.user?.id ?? user.id}/quota` : null
+  );
 
   useEffect(() => {
     if (onUpdating) {
@@ -87,6 +84,8 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
           serverId: requestOverrides.server,
           profileId: requestOverrides.profile,
           rootFolder: requestOverrides.folder,
+          userId: requestOverrides.user?.id,
+          tags: requestOverrides.tags,
         };
       }
       const response = await axios.post<MediaRequest>('/api/v1/request', {
@@ -99,8 +98,14 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
       if (response.data) {
         if (onComplete) {
           onComplete(
-            hasPermission(Permission.AUTO_APPROVE) ||
-              hasPermission(Permission.AUTO_APPROVE_MOVIE)
+            hasPermission(
+              is4k ? Permission.AUTO_APPROVE_4K : Permission.AUTO_APPROVE
+            ) ||
+              hasPermission(
+                is4k
+                  ? Permission.AUTO_APPROVE_4K_MOVIE
+                  : Permission.AUTO_APPROVE_MOVIE
+              )
               ? MediaStatus.PROCESSING
               : MediaStatus.PENDING
           );
@@ -169,12 +174,24 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
         serverId: requestOverrides?.server,
         profileId: requestOverrides?.profile,
         rootFolder: requestOverrides?.folder,
+        userId: requestOverrides?.user?.id,
+        tags: requestOverrides?.tags,
       });
 
-      addToast(<span>{intl.formatMessage(messages.requestedited)}</span>, {
-        appearance: 'success',
-        autoDismiss: true,
-      });
+      addToast(
+        <span>
+          {intl.formatMessage(messages.requestedited, {
+            title: data?.title,
+            strong: function strong(msg) {
+              return <strong>{msg}</strong>;
+            },
+          })}
+        </span>,
+        {
+          appearance: 'success',
+          autoDismiss: true,
+        }
+      );
 
       if (onComplete) {
         onComplete(MediaStatus.PENDING);
@@ -190,8 +207,7 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
   };
 
   const isOwner = activeRequest
-    ? activeRequest.requestedBy.id === user?.id ||
-      hasPermission(Permission.MANAGE_REQUESTS)
+    ? activeRequest.requestedBy.id === user?.id
     : false;
 
   if (activeRequest?.status === MediaRequestStatus.PENDING) {
@@ -206,38 +222,41 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
             title: data?.title,
           }
         )}
-        onOk={() => updateRequest()}
+        onOk={() => (isOwner ? cancelRequest() : updateRequest())}
         okDisabled={isUpdating}
-        okText={intl.formatMessage(globalMessages.edit)}
-        okButtonType="primary"
-        onSecondary={isOwner ? () => cancelRequest() : undefined}
-        secondaryDisabled={isUpdating}
-        secondaryText={
-          isUpdating
-            ? intl.formatMessage(messages.cancelling)
-            : intl.formatMessage(messages.cancel)
+        okText={
+          isOwner
+            ? isUpdating
+              ? intl.formatMessage(globalMessages.canceling)
+              : intl.formatMessage(messages.cancel)
+            : intl.formatMessage(globalMessages.edit)
         }
-        secondaryButtonType="danger"
-        cancelText={intl.formatMessage(messages.close)}
+        okButtonType={isOwner ? 'danger' : 'primary'}
+        cancelText={intl.formatMessage(globalMessages.close)}
         iconSvg={<DownloadIcon className="w-6 h-6" />}
       >
-        {intl.formatMessage(
-          is4k ? messages.request4kfrom : messages.requestfrom,
-          {
-            username: activeRequest.requestedBy.username,
-          }
-        )}
-        {hasPermission(Permission.REQUEST_ADVANCED) && (
+        {isOwner
+          ? intl.formatMessage(messages.pendingapproval)
+          : intl.formatMessage(
+              is4k ? messages.request4kfrom : messages.requestfrom,
+              {
+                username: activeRequest.requestedBy.displayName,
+              }
+            )}
+        {(hasPermission(Permission.REQUEST_ADVANCED) ||
+          hasPermission(Permission.MANAGE_REQUESTS)) && (
           <div className="mt-4">
             <AdvancedRequester
               type="movie"
               is4k={is4k}
+              requestUser={editRequest?.requestedBy}
               defaultOverrides={
                 editRequest
                   ? {
                       folder: editRequest.rootFolder,
                       profile: editRequest.profileId,
                       server: editRequest.serverId,
+                      tags: editRequest.tags,
                     }
                   : undefined
               }
@@ -251,35 +270,57 @@ const MovieRequestModal: React.FC<RequestModalProps> = ({
     );
   }
 
+  const hasAutoApprove = hasPermission(
+    [
+      Permission.MANAGE_REQUESTS,
+      is4k ? Permission.AUTO_APPROVE_4K : Permission.AUTO_APPROVE,
+      is4k ? Permission.AUTO_APPROVE_4K_MOVIE : Permission.AUTO_APPROVE_MOVIE,
+    ],
+    { type: 'or' }
+  );
+
   return (
     <Modal
-      loading={!data && !error}
+      loading={(!data && !error) || !quota}
       backgroundClickable
       onCancel={onCancel}
       onOk={sendRequest}
-      okDisabled={isUpdating}
+      okDisabled={isUpdating || quota?.movie.restricted}
       title={intl.formatMessage(
         is4k ? messages.request4ktitle : messages.requesttitle,
         { title: data?.title }
       )}
       okText={
         isUpdating
-          ? intl.formatMessage(messages.requesting)
-          : intl.formatMessage(is4k ? messages.request4k : messages.request)
+          ? intl.formatMessage(globalMessages.requesting)
+          : intl.formatMessage(
+              is4k ? globalMessages.request4k : globalMessages.request
+            )
       }
       okButtonType={'primary'}
       iconSvg={<DownloadIcon className="w-6 h-6" />}
     >
-      {(hasPermission(Permission.MANAGE_REQUESTS) ||
-        hasPermission(Permission.AUTO_APPROVE) ||
-        hasPermission(Permission.AUTO_APPROVE_MOVIE)) && (
-        <p className="mt-6">
-          <Alert title={intl.formatMessage(messages.autoapproval)} type="info">
-            {intl.formatMessage(messages.requestadmin)}
-          </Alert>
-        </p>
+      {hasAutoApprove && !quota?.movie.restricted && (
+        <div className="mt-6">
+          <Alert
+            title={intl.formatMessage(messages.requestadmin)}
+            type="info"
+          />
+        </div>
       )}
-      {hasPermission(Permission.REQUEST_ADVANCED) && (
+      {(quota?.movie.limit ?? 0) > 0 && (
+        <QuotaDisplay
+          mediaType="movie"
+          quota={quota?.movie}
+          userOverride={
+            requestOverrides?.user && requestOverrides.user.id !== user?.id
+              ? requestOverrides?.user?.id
+              : undefined
+          }
+        />
+      )}
+      {(hasPermission(Permission.REQUEST_ADVANCED) ||
+        hasPermission(Permission.MANAGE_REQUESTS)) && (
         <AdvancedRequester
           type="movie"
           is4k={is4k}

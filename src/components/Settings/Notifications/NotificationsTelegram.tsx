@@ -1,33 +1,32 @@
-import React from 'react';
-import { Field, Form, Formik } from 'formik';
-import useSWR from 'swr';
-import LoadingSpinner from '../../Common/LoadingSpinner';
-import Button from '../../Common/Button';
-import { defineMessages, useIntl } from 'react-intl';
 import axios from 'axios';
-import * as Yup from 'yup';
+import { Field, Form, Formik } from 'formik';
+import React from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import * as Yup from 'yup';
+import globalMessages from '../../../i18n/globalMessages';
 import Alert from '../../Common/Alert';
+import Button from '../../Common/Button';
+import LoadingSpinner from '../../Common/LoadingSpinner';
 import NotificationTypeSelector from '../../NotificationTypeSelector';
 
 const messages = defineMessages({
-  save: 'Save Changes',
-  saving: 'Saving...',
-  agentenabled: 'Agent Enabled',
-  botAPI: 'Bot API',
-  chatId: 'Chat Id',
-  validationBotAPIRequired: 'You must provide a Bot API key.',
-  validationChatIdRequired: 'You must provide a Chat id.',
-  telegramsettingssaved: 'Telegram notification settings saved!',
+  agentenabled: 'Enable Agent',
+  botUsername: 'Bot Username',
+  botUsernameTip:
+    'Allow users to start a chat with the bot and configure their own personal notifications',
+  botAPI: 'Bot Authentication Token',
+  chatId: 'Chat ID',
+  validationBotAPIRequired: 'You must provide a bot authentication token',
+  validationChatIdRequired: 'You must provide a valid chat ID',
+  telegramsettingssaved: 'Telegram notification settings saved successfully!',
   telegramsettingsfailed: 'Telegram notification settings failed to save.',
-  testsent: 'Test notification sent!',
-  test: 'Test',
-  settinguptelegram: 'Setting up Telegram Notifications',
+  testsent: 'Telegram test notification sent!',
   settinguptelegramDescription:
-    'To setup Telegram you need to <CreateBotLink>create a bot</CreateBotLink> and get the bot API key.\
-    Additionally, you need the chat id for the chat you want the bot to send notifications to.\
-    You can do this by adding <GetIdBotLink>@get_id_bot</GetIdBotLink> to the chat or group chat.',
-  notificationtypes: 'Notification Types',
+    'To configure Telegram notifications, you will need to <CreateBotLink>create a bot</CreateBotLink> and get the bot API key. Additionally, you will need the chat ID for the chat to which you would like to send notifications. You can find this by adding <GetIdBotLink>@get_id_bot</GetIdBotLink> to the chat and issuing the <code>/my_id</code> command.',
+  sendSilently: 'Send Silently',
+  sendSilentlyTip: 'Send notifications with no sound',
 });
 
 const NotificationsTelegram: React.FC = () => {
@@ -38,12 +37,25 @@ const NotificationsTelegram: React.FC = () => {
   );
 
   const NotificationsTelegramSchema = Yup.object().shape({
-    botAPI: Yup.string().required(
-      intl.formatMessage(messages.validationBotAPIRequired)
-    ),
-    chatId: Yup.string().required(
-      intl.formatMessage(messages.validationChatIdRequired)
-    ),
+    botAPI: Yup.string().when('enabled', {
+      is: true,
+      then: Yup.string()
+        .nullable()
+        .required(intl.formatMessage(messages.validationBotAPIRequired)),
+      otherwise: Yup.string().nullable(),
+    }),
+    chatId: Yup.string()
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationChatIdRequired)),
+        otherwise: Yup.string().nullable(),
+      })
+      .matches(
+        /^-?\d+$/,
+        intl.formatMessage(messages.validationChatIdRequired)
+      ),
   });
 
   if (!data && !error) {
@@ -55,8 +67,10 @@ const NotificationsTelegram: React.FC = () => {
       initialValues={{
         enabled: data?.enabled,
         types: data?.types,
+        botUsername: data?.options.botUsername,
         botAPI: data?.options.botAPI,
         chatId: data?.options.chatId,
+        sendSilently: data?.options.sendSilently,
       }}
       validationSchema={NotificationsTelegramSchema}
       onSubmit={async (values) => {
@@ -67,8 +81,11 @@ const NotificationsTelegram: React.FC = () => {
             options: {
               botAPI: values.botAPI,
               chatId: values.chatId,
+              sendSilently: values.sendSilently,
+              botUsername: values.botUsername,
             },
           });
+
           addToast(intl.formatMessage(messages.telegramsettingssaved), {
             appearance: 'success',
             autoDismiss: true,
@@ -91,6 +108,8 @@ const NotificationsTelegram: React.FC = () => {
             options: {
               botAPI: values.botAPI,
               chatId: values.chatId,
+              sendSilently: values.sendSilently,
+              botUsername: values.botUsername,
             },
           });
 
@@ -103,15 +122,12 @@ const NotificationsTelegram: React.FC = () => {
         return (
           <>
             <Alert
-              title={intl.formatMessage(messages.settinguptelegram)}
-              type="info"
-            >
-              {intl.formatMessage(messages.settinguptelegramDescription, {
+              title={intl.formatMessage(messages.settinguptelegramDescription, {
                 CreateBotLink: function CreateBotLink(msg) {
                   return (
                     <a
                       href="https://core.telegram.org/bots#6-botfather"
-                      className="text-indigo-100 hover:text-white hover:underline"
+                      className="text-white transition duration-300 hover:underline"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -123,7 +139,7 @@ const NotificationsTelegram: React.FC = () => {
                   return (
                     <a
                       href="https://telegram.me/get_id_bot"
-                      className="text-indigo-100 hover:text-white hover:underline"
+                      className="text-white transition duration-300 hover:underline"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -131,92 +147,100 @@ const NotificationsTelegram: React.FC = () => {
                     </a>
                   );
                 },
+                code: function code(msg) {
+                  return <code className="bg-opacity-50">{msg}</code>;
+                },
               })}
-            </Alert>
-            <Form>
-              <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                <label
-                  htmlFor="enabled"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              type="info"
+            />
+            <Form className="section">
+              <div className="form-row">
+                <label htmlFor="enabled" className="checkbox-label">
                   {intl.formatMessage(messages.agentenabled)}
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <Field
-                    type="checkbox"
-                    id="enabled"
-                    name="enabled"
-                    className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                  />
+                <div className="form-input">
+                  <Field type="checkbox" id="enabled" name="enabled" />
                 </div>
               </div>
-              <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                <label
-                  htmlFor="botAPI"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
-                  {intl.formatMessage(messages.botAPI)}
+              <div className="form-row">
+                <label htmlFor="botUsername" className="text-label">
+                  {intl.formatMessage(messages.botUsername)}
+                  <span className="label-tip">
+                    {intl.formatMessage(messages.botUsernameTip)}
+                  </span>
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                <div className="form-input">
+                  <div className="form-input-field">
+                    <Field
+                      id="botUsername"
+                      name="botUsername"
+                      type="text"
+                      placeholder={intl.formatMessage(messages.botUsername)}
+                    />
+                  </div>
+                  {errors.botUsername && touched.botUsername && (
+                    <div className="error">{errors.botUsername}</div>
+                  )}
+                </div>
+              </div>
+              <div className="form-row">
+                <label htmlFor="botAPI" className="text-label">
+                  {intl.formatMessage(messages.botAPI)}
+                  <span className="label-required">*</span>
+                </label>
+                <div className="form-input">
+                  <div className="form-input-field">
                     <Field
                       id="botAPI"
                       name="botAPI"
                       type="text"
                       placeholder={intl.formatMessage(messages.botAPI)}
-                      className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.botAPI && touched.botAPI && (
-                    <div className="mt-2 text-red-500">{errors.botAPI}</div>
+                    <div className="error">{errors.botAPI}</div>
                   )}
                 </div>
-                <label
-                  htmlFor="chatId"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              </div>
+              <div className="form-row">
+                <label htmlFor="chatId" className="text-label">
                   {intl.formatMessage(messages.chatId)}
+                  <span className="label-required">*</span>
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                <div className="form-input">
+                  <div className="form-input-field">
                     <Field
                       id="chatId"
                       name="chatId"
                       type="text"
                       placeholder={intl.formatMessage(messages.chatId)}
-                      className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.chatId && touched.chatId && (
-                    <div className="mt-2 text-red-500">{errors.chatId}</div>
+                    <div className="error">{errors.chatId}</div>
                   )}
                 </div>
               </div>
-              <div className="mt-6">
-                <div role="group" aria-labelledby="label-permissions">
-                  <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-baseline">
-                    <div>
-                      <div
-                        className="text-base font-medium leading-6 text-gray-400 sm:text-sm sm:leading-5"
-                        id="label-types"
-                      >
-                        {intl.formatMessage(messages.notificationtypes)}
-                      </div>
-                    </div>
-                    <div className="mt-4 sm:mt-0 sm:col-span-2">
-                      <div className="max-w-lg">
-                        <NotificationTypeSelector
-                          currentTypes={values.types}
-                          onUpdate={(newTypes) =>
-                            setFieldValue('types', newTypes)
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
+              <div className="form-row">
+                <label htmlFor="sendSilently" className="checkbox-label">
+                  <span>{intl.formatMessage(messages.sendSilently)}</span>
+                  <span className="label-tip">
+                    {intl.formatMessage(messages.sendSilentlyTip)}
+                  </span>
+                </label>
+                <div className="form-input">
+                  <Field
+                    type="checkbox"
+                    id="sendSilently"
+                    name="sendSilently"
+                  />
                 </div>
               </div>
-              <div className="pt-5 mt-8 border-t border-gray-700">
+              <NotificationTypeSelector
+                currentTypes={values.types}
+                onUpdate={(newTypes) => setFieldValue('types', newTypes)}
+              />
+              <div className="actions">
                 <div className="flex justify-end">
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
                     <Button
@@ -228,7 +252,7 @@ const NotificationsTelegram: React.FC = () => {
                         testSettings();
                       }}
                     >
-                      {intl.formatMessage(messages.test)}
+                      {intl.formatMessage(globalMessages.test)}
                     </Button>
                   </span>
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
@@ -238,8 +262,8 @@ const NotificationsTelegram: React.FC = () => {
                       disabled={isSubmitting || !isValid}
                     >
                       {isSubmitting
-                        ? intl.formatMessage(messages.saving)
-                        : intl.formatMessage(messages.save)}
+                        ? intl.formatMessage(globalMessages.saving)
+                        : intl.formatMessage(globalMessages.save)}
                     </Button>
                   </span>
                 </div>

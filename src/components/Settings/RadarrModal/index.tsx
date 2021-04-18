@@ -1,51 +1,75 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Transition from '../../Transition';
-import Modal from '../../Common/Modal';
-import { Formik, Field } from 'formik';
-import type { RadarrSettings } from '../../../../server/lib/settings';
-import * as Yup from 'yup';
+import { PencilIcon, PlusIcon } from '@heroicons/react/solid';
 import axios from 'axios';
-import { useToasts } from 'react-toast-notifications';
+import { Field, Formik } from 'formik';
+import dynamic from 'next/dynamic';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { defineMessages, useIntl } from 'react-intl';
+import type { OptionsType, OptionTypeBase } from 'react-select';
+import { useToasts } from 'react-toast-notifications';
+import * as Yup from 'yup';
+import type { RadarrSettings } from '../../../../server/lib/settings';
+import globalMessages from '../../../i18n/globalMessages';
+import Modal from '../../Common/Modal';
+import Transition from '../../Transition';
+
+type OptionType = {
+  value: string;
+  label: string;
+};
+
+const Select = dynamic(() => import('react-select'), { ssr: false });
 
 const messages = defineMessages({
-  createradarr: 'Create New Radarr Server',
+  createradarr: 'Add New Radarr Server',
+  create4kradarr: 'Add New 4K Radarr Server',
   editradarr: 'Edit Radarr Server',
+  edit4kradarr: 'Edit 4K Radarr Server',
   validationNameRequired: 'You must provide a server name',
-  validationHostnameRequired: 'You must provide a hostname/IP',
-  validationPortRequired: 'You must provide a port',
+  validationHostnameRequired: 'You must provide a hostname or IP address',
+  validationPortRequired: 'You must provide a valid port number',
   validationApiKeyRequired: 'You must provide an API key',
   validationRootFolderRequired: 'You must select a root folder',
-  validationProfileRequired: 'You must select a profile',
-  validationMinimumAvailabilityRequired: 'You must select minimum availability',
-  toastRadarrTestSuccess: 'Radarr connection established!',
-  toastRadarrTestFailure: 'Failed to connect to Radarr Server',
-  saving: 'Saving...',
-  save: 'Save Changes',
+  validationProfileRequired: 'You must select a quality profile',
+  validationMinimumAvailabilityRequired:
+    'You must select a minimum availability',
+  toastRadarrTestSuccess: 'Radarr connection established successfully!',
+  toastRadarrTestFailure: 'Failed to connect to Radarr.',
   add: 'Add Server',
-  test: 'Test',
-  testing: 'Testing...',
   defaultserver: 'Default Server',
+  default4kserver: 'Default 4K Server',
   servername: 'Server Name',
   servernamePlaceholder: 'A Radarr Server',
-  hostname: 'Hostname',
+  hostname: 'Hostname or IP Address',
   port: 'Port',
-  ssl: 'SSL',
+  ssl: 'Enable SSL',
   apiKey: 'API Key',
-  apiKeyPlaceholder: 'Your Radarr API Key',
+  apiKeyPlaceholder: 'Your Radarr API key',
   baseUrl: 'Base URL',
   baseUrlPlaceholder: 'Example: /radarr',
+  syncEnabled: 'Enable Scan',
+  externalUrl: 'External URL',
+  externalUrlPlaceholder: 'External URL pointing to your Radarr server',
   qualityprofile: 'Quality Profile',
   rootfolder: 'Root Folder',
   minimumAvailability: 'Minimum Availability',
   server4k: '4K Server',
-  selectQualityProfile: 'Select a Quality Profile',
-  selectRootFolder: 'Select a Root Folder',
+  selectQualityProfile: 'Select quality profile',
+  selectRootFolder: 'Select root folder',
   selectMinimumAvailability: 'Select minimum availability',
   loadingprofiles: 'Loading quality profiles…',
-  testFirstQualityProfiles: 'Test your connection to load quality profiles',
+  testFirstQualityProfiles: 'Test connection to load quality profiles',
   loadingrootfolders: 'Loading root folders…',
-  testFirstRootFolders: 'Test your connection to load root folders',
+  testFirstRootFolders: 'Test connection to load root folders',
+  loadingTags: 'Loading tags…',
+  testFirstTags: 'Test connection to load tags',
+  tags: 'Tags',
+  preventSearch: 'Disable Auto-Search',
+  validationApplicationUrl: 'You must provide a valid URL',
+  validationApplicationUrlTrailingSlash: 'URL must not end in a trailing slash',
+  validationBaseUrlLeadingSlash: 'Base URL must have a leading slash',
+  validationBaseUrlTrailingSlash: 'Base URL must not end in a trailing slash',
+  notagoptions: 'No tags.',
+  selecttags: 'Select tags',
 });
 
 interface TestResponse {
@@ -56,6 +80,10 @@ interface TestResponse {
   rootFolders: {
     id: number;
     path: string;
+  }[];
+  tags: {
+    id: number;
+    label: string;
   }[];
 }
 
@@ -78,18 +106,24 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
   const [testResponse, setTestResponse] = useState<TestResponse>({
     profiles: [],
     rootFolders: [],
+    tags: [],
   });
   const RadarrSettingsSchema = Yup.object().shape({
     name: Yup.string().required(
       intl.formatMessage(messages.validationNameRequired)
     ),
-    hostname: Yup.string().required(
-      intl.formatMessage(messages.validationHostnameRequired)
+    hostname: Yup.string()
+      .required(intl.formatMessage(messages.validationHostnameRequired))
+      .matches(
+        /^(([a-z]|\d|_|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*)?([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])$/i,
+        intl.formatMessage(messages.validationHostnameRequired)
+      ),
+    port: Yup.number()
+      .typeError(intl.formatMessage(messages.validationPortRequired))
+      .required(intl.formatMessage(messages.validationPortRequired)),
+    apiKey: Yup.string().required(
+      intl.formatMessage(messages.validationApiKeyRequired)
     ),
-    port: Yup.number().required(
-      intl.formatMessage(messages.validationPortRequired)
-    ),
-    apiKey: Yup.string().required(intl.formatMessage(messages.apiKey)),
     rootFolder: Yup.string().required(
       intl.formatMessage(messages.validationRootFolderRequired)
     ),
@@ -99,6 +133,39 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
     minimumAvailability: Yup.string().required(
       intl.formatMessage(messages.validationMinimumAvailabilityRequired)
     ),
+    externalUrl: Yup.string()
+      .url(intl.formatMessage(messages.validationApplicationUrl))
+      .test(
+        'no-trailing-slash',
+        intl.formatMessage(messages.validationApplicationUrlTrailingSlash),
+        (value) => {
+          if (value?.substr(value.length - 1) === '/') {
+            return false;
+          }
+          return true;
+        }
+      ),
+    baseUrl: Yup.string()
+      .test(
+        'leading-slash',
+        intl.formatMessage(messages.validationBaseUrlLeadingSlash),
+        (value) => {
+          if (value && value?.substr(0, 1) !== '/') {
+            return false;
+          }
+          return true;
+        }
+      )
+      .test(
+        'no-trailing-slash',
+        intl.formatMessage(messages.validationBaseUrlTrailingSlash),
+        (value) => {
+          if (value?.substr(value.length - 1) === '/') {
+            return false;
+          }
+          return true;
+        }
+      ),
   });
 
   const testConnection = useCallback(
@@ -149,7 +216,7 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
         initialLoad.current = true;
       }
     },
-    [addToast]
+    [addToast, intl]
   );
 
   useEffect(() => {
@@ -186,8 +253,12 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
           activeProfileId: radarr?.activeProfileId,
           rootFolder: radarr?.activeDirectory,
           minimumAvailability: radarr?.minimumAvailability ?? 'released',
+          tags: radarr?.tags ?? [],
           isDefault: radarr?.isDefault ?? false,
           is4k: radarr?.is4k ?? false,
+          externalUrl: radarr?.externalUrl,
+          syncEnabled: radarr?.syncEnabled,
+          preventSearch: radarr?.preventSearch,
         }}
         validationSchema={RadarrSettingsSchema}
         onSubmit={async (values) => {
@@ -208,7 +279,11 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
               activeDirectory: values.rootFolder,
               is4k: values.is4k,
               minimumAvailability: values.minimumAvailability,
+              tags: values.tags,
               isDefault: values.isDefault,
+              externalUrl: values.externalUrl,
+              syncEnabled: values.syncEnabled,
+              preventSearch: values.preventSearch,
             };
             if (!radarr) {
               await axios.post('/api/v1/settings/radarr', submission);
@@ -240,16 +315,16 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
               okButtonType="primary"
               okText={
                 isSubmitting
-                  ? intl.formatMessage(messages.saving)
+                  ? intl.formatMessage(globalMessages.saving)
                   : radarr
-                  ? intl.formatMessage(messages.save)
+                  ? intl.formatMessage(globalMessages.save)
                   : intl.formatMessage(messages.add)
               }
               secondaryButtonType="warning"
               secondaryText={
                 isTesting
-                  ? intl.formatMessage(messages.testing)
-                  : intl.formatMessage(messages.test)
+                  ? intl.formatMessage(globalMessages.testing)
+                  : intl.formatMessage(globalMessages.test)
               }
               onSecondary={() => {
                 if (values.apiKey && values.hostname && values.port) {
@@ -263,43 +338,61 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                 }
               }}
               secondaryDisabled={
-                !values.apiKey || !values.hostname || !values.port || isTesting
+                !values.apiKey ||
+                !values.hostname ||
+                !values.port ||
+                isTesting ||
+                isSubmitting
               }
               okDisabled={!isValidated || isSubmitting || isTesting || !isValid}
               onOk={() => handleSubmit()}
               title={
                 !radarr
-                  ? intl.formatMessage(messages.createradarr)
-                  : intl.formatMessage(messages.editradarr)
+                  ? intl.formatMessage(
+                      values.is4k
+                        ? messages.create4kradarr
+                        : messages.createradarr
+                    )
+                  : intl.formatMessage(
+                      values.is4k ? messages.edit4kradarr : messages.editradarr
+                    )
+              }
+              iconSvg={
+                !radarr ? (
+                  <PlusIcon className="w-6 h-6" />
+                ) : (
+                  <PencilIcon className="w-6 h-6" />
+                )
               }
             >
               <div className="mb-6">
-                <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="isDefault"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.defaultserver)}
+                <div className="form-row">
+                  <label htmlFor="isDefault" className="checkbox-label">
+                    {intl.formatMessage(
+                      values.is4k
+                        ? messages.default4kserver
+                        : messages.defaultserver
+                    )}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <Field
-                      type="checkbox"
-                      id="isDefault"
-                      name="isDefault"
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                    />
+                  <div className="form-input">
+                    <Field type="checkbox" id="isDefault" name="isDefault" />
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="name"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.servername)}
-                    <span className="text-red-500">*</span>
+                <div className="form-row">
+                  <label htmlFor="is4k" className="checkbox-label">
+                    {intl.formatMessage(messages.server4k)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <Field type="checkbox" id="is4k" name="is4k" />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="name" className="text-label">
+                    {intl.formatMessage(messages.servername)}
+                    <span className="label-required">*</span>
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="name"
                         name="name"
@@ -311,25 +404,21 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('name', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.name && touched.name && (
-                      <div className="mt-2 text-red-500">{errors.name}</div>
+                      <div className="error">{errors.name}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="hostname"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="hostname" className="text-label">
                     {intl.formatMessage(messages.hostname)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
-                      <span className="inline-flex items-center px-3 text-gray-100 bg-gray-600 border border-r-0 border-gray-500 cursor-default rounded-l-md sm:text-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <span className="protocol">
                         {values.ssl ? 'https://' : 'http://'}
                       </span>
                       <Field
@@ -341,47 +430,41 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('hostname', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 form-input rounded-r-md sm:text-sm sm:leading-5"
+                        className="rounded-r-only"
                       />
                     </div>
                     {errors.hostname && touched.hostname && (
-                      <div className="mt-2 text-red-500">{errors.hostname}</div>
+                      <div className="error">{errors.hostname}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="port"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="port" className="text-label">
                     {intl.formatMessage(messages.port)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
                     <Field
                       id="port"
                       name="port"
                       type="text"
                       placeholder="7878"
+                      className="short"
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         setIsValidated(false);
                         setFieldValue('port', e.target.value);
                       }}
-                      className="block w-24 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md shadow-sm form-input sm:text-sm sm:leading-5"
                     />
                     {errors.port && touched.port && (
-                      <div className="mt-2 text-red-500">{errors.port}</div>
+                      <div className="error">{errors.port}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="ssl"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="ssl" className="checkbox-label">
                     {intl.formatMessage(messages.ssl)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
                     <Field
                       type="checkbox"
                       id="ssl"
@@ -390,20 +473,16 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                         setIsValidated(false);
                         setFieldValue('ssl', !values.ssl);
                       }}
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
                     />
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="apiKey"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="apiKey" className="text-label">
                     {intl.formatMessage(messages.apiKey)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="apiKey"
                         name="apiKey"
@@ -415,23 +494,19 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('apiKey', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.apiKey && touched.apiKey && (
-                      <div className="mt-2 text-red-500">{errors.apiKey}</div>
+                      <div className="error">{errors.apiKey}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="baseUrl"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="baseUrl" className="text-label">
                     {intl.formatMessage(messages.baseUrl)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="baseUrl"
                         name="baseUrl"
@@ -443,30 +518,25 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('baseUrl', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.baseUrl && touched.baseUrl && (
-                      <div className="mt-2 text-red-500">{errors.baseUrl}</div>
+                      <div className="error">{errors.baseUrl}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="activeProfileId"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="activeProfileId" className="text-label">
                     {intl.formatMessage(messages.qualityprofile)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="activeProfileId"
                         name="activeProfileId"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -489,28 +559,22 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                       </Field>
                     </div>
                     {errors.activeProfileId && touched.activeProfileId && (
-                      <div className="mt-2 text-red-500">
-                        {errors.activeProfileId}
-                      </div>
+                      <div className="error">{errors.activeProfileId}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-8005">
-                  <label
-                    htmlFor="rootFolder"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="rootFolder" className="text-label">
                     {intl.formatMessage(messages.rootfolder)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="rootFolder"
                         name="rootFolder"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -531,27 +595,21 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                       </Field>
                     </div>
                     {errors.rootFolder && touched.rootFolder && (
-                      <div className="mt-2 text-red-500">
-                        {errors.rootFolder}
-                      </div>
+                      <div className="error">{errors.rootFolder}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="minimumAvailability"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="minimumAvailability" className="text-label">
                     {intl.formatMessage(messages.minimumAvailability)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="minimumAvailability"
                         name="minimumAvailability"
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5"
                       >
                         <option value="announced">Announced</option>
                         <option value="inCinemas">In Cinemas</option>
@@ -561,25 +619,104 @@ const RadarrModal: React.FC<RadarrModalProps> = ({
                     </div>
                     {errors.minimumAvailability &&
                       touched.minimumAvailability && (
-                        <div className="mt-2 text-red-500">
+                        <div className="error">
                           {errors.minimumAvailability}
                         </div>
                       )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="is4k"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.server4k)}
+                <div className="form-row">
+                  <label htmlFor="tags" className="text-label">
+                    {intl.formatMessage(messages.tags)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
+                    <Select
+                      options={
+                        isValidated
+                          ? testResponse.tags.map((tag) => ({
+                              label: tag.label,
+                              value: tag.id,
+                            }))
+                          : []
+                      }
+                      isMulti
+                      isDisabled={!isValidated || isTesting}
+                      placeholder={
+                        !isValidated
+                          ? intl.formatMessage(messages.testFirstTags)
+                          : isTesting
+                          ? intl.formatMessage(messages.loadingTags)
+                          : intl.formatMessage(messages.selecttags)
+                      }
+                      className="react-select-container"
+                      classNamePrefix="react-select"
+                      value={values.tags.map((tagId) => {
+                        const foundTag = testResponse.tags.find(
+                          (tag) => tag.id === tagId
+                        );
+                        return {
+                          value: foundTag?.id,
+                          label: foundTag?.label,
+                        };
+                      })}
+                      onChange={(
+                        value: OptionTypeBase | OptionsType<OptionType> | null
+                      ) => {
+                        if (!Array.isArray(value)) {
+                          return;
+                        }
+                        setFieldValue(
+                          'tags',
+                          value?.map((option) => option.value)
+                        );
+                      }}
+                      noOptionsMessage={() =>
+                        intl.formatMessage(messages.notagoptions)
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="externalUrl" className="text-label">
+                    {intl.formatMessage(messages.externalUrl)}
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <Field
+                        id="externalUrl"
+                        name="externalUrl"
+                        type="text"
+                        placeholder={intl.formatMessage(
+                          messages.externalUrlPlaceholder
+                        )}
+                      />
+                    </div>
+                    {errors.externalUrl && touched.externalUrl && (
+                      <div className="error">{errors.externalUrl}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="syncEnabled" className="checkbox-label">
+                    {intl.formatMessage(messages.syncEnabled)}
+                  </label>
+                  <div className="form-input">
                     <Field
                       type="checkbox"
-                      id="is4k"
-                      name="is4k"
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
+                      id="syncEnabled"
+                      name="syncEnabled"
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="preventSearch" className="checkbox-label">
+                    {intl.formatMessage(messages.preventSearch)}
+                  </label>
+                  <div className="form-input">
+                    <Field
+                      type="checkbox"
+                      id="preventSearch"
+                      name="preventSearch"
                     />
                   </div>
                 </div>

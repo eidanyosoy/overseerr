@@ -7,6 +7,7 @@ module.exports = {
     extend: {
       transitionProperty: {
         'max-height': 'max-height',
+        width: 'width',
       },
       fontFamily: {
         sans: ['Inter var', ...defaultTheme.fontFamily.sans],
@@ -58,11 +59,15 @@ module.exports = {
     },
   },
   variants: {
+    cursor: ['disabled'],
     padding: ['first', 'last', 'responsive'],
     borderWidth: ['first', 'last'],
     margin: ['first', 'last', 'responsive'],
-    boxShadow: ['group-focus'],
+    boxShadow: ['group-focus', 'responsive'],
     opacity: ['disabled', 'hover', 'group-hover'],
+    ringColor: ['focus', 'focus-within', 'hover', 'active'],
+    scale: ['hover', 'focus', 'group-hover'],
+    zIndex: ['hover', 'responsive'],
   },
   plugins: [
     require('@tailwindcss/forms'),

@@ -1,26 +1,29 @@
+import axios from 'axios';
 import { useRouter } from 'next/router';
 import React, { useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
+import AppDataWarning from '../AppDataWarning';
+import Badge from '../Common/Badge';
 import Button from '../Common/Button';
 import ImageFader from '../Common/ImageFader';
+import PageTitle from '../Common/PageTitle';
+import LanguagePicker from '../Layout/LanguagePicker';
 import SettingsPlex from '../Settings/SettingsPlex';
 import SettingsServices from '../Settings/SettingsServices';
 import LoginWithPlex from './LoginWithPlex';
 import SetupSteps from './SetupSteps';
-import axios from 'axios';
-import { defineMessages, FormattedMessage, useIntl } from 'react-intl';
-import Badge from '../Common/Badge';
-import LanguagePicker from '../Layout/LanguagePicker';
 
 const messages = defineMessages({
+  setup: 'Setup',
   finish: 'Finish Setup',
-  finishing: 'Finishing...',
+  finishing: 'Finishing…',
   continue: 'Continue',
-  loginwithplex: 'Login with Plex',
+  loginwithplex: 'Sign in with Plex',
   configureplex: 'Configure Plex',
   configureservices: 'Configure Services',
   tip: 'Tip',
-  syncingbackground:
-    'Syncing will run in the background. You can continue the setup process in the meantime.',
+  scanbackground:
+    'Scanning will run in the background. You can continue the setup process in the meantime.',
 });
 
 const Setup: React.FC = () => {
@@ -32,7 +35,7 @@ const Setup: React.FC = () => {
 
   const finishSetup = async () => {
     setIsUpdating(false);
-    const response = await axios.get<{ initialized: boolean }>(
+    const response = await axios.post<{ initialized: boolean }>(
       '/api/v1/settings/initialize'
     );
 
@@ -44,6 +47,7 @@ const Setup: React.FC = () => {
 
   return (
     <div className="relative flex flex-col justify-center min-h-screen py-12 bg-gray-900">
+      <PageTitle title={intl.formatMessage(messages.setup)} />
       <ImageFader
         backgroundImages={[
           '/images/rotate1.jpg',
@@ -60,12 +64,13 @@ const Setup: React.FC = () => {
       <div className="relative z-40 px-4 sm:mx-auto sm:w-full sm:max-w-4xl">
         <img
           src="/logo.png"
-          className="w-auto mx-auto mb-10 max-h-32"
-          alt="Overseerr Logo"
+          className="max-w-full sm:max-w-md sm:mx-auto"
+          alt="Logo"
         />
+        <AppDataWarning />
         <nav className="relative z-50">
           <ul
-            className="bg-gray-800 bg-opacity-50 border border-gray-600 divide-y divide-gray-600 rounded-md  md:flex md:divide-y-0"
+            className="bg-gray-800 bg-opacity-50 border border-gray-600 divide-y divide-gray-600 rounded-md md:flex md:divide-y-0"
             style={{ backdropFilter: 'blur(5px)' }}
           >
             <SetupSteps
@@ -99,9 +104,9 @@ const Setup: React.FC = () => {
                 <span className="mr-2">
                   <Badge>{intl.formatMessage(messages.tip)}</Badge>
                 </span>
-                {intl.formatMessage(messages.syncingbackground)}
+                {intl.formatMessage(messages.scanbackground)}
               </div>
-              <div className="pt-5 mt-8 border-t border-gray-700">
+              <div className="actions">
                 <div className="flex justify-end">
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
                     <Button
@@ -109,7 +114,7 @@ const Setup: React.FC = () => {
                       disabled={!plexSettingsComplete}
                       onClick={() => setCurrentStep(3)}
                     >
-                      <FormattedMessage {...messages.continue} />
+                      {intl.formatMessage(messages.continue)}
                     </Button>
                   </span>
                 </div>
@@ -119,7 +124,7 @@ const Setup: React.FC = () => {
           {currentStep === 3 && (
             <div>
               <SettingsServices />
-              <div className="pt-5 mt-8 border-t border-gray-700">
+              <div className="actions">
                 <div className="flex justify-end">
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
                     <Button
@@ -127,11 +132,9 @@ const Setup: React.FC = () => {
                       onClick={() => finishSetup()}
                       disabled={isUpdating}
                     >
-                      {isUpdating ? (
-                        <FormattedMessage {...messages.finishing} />
-                      ) : (
-                        <FormattedMessage {...messages.finish} />
-                      )}
+                      {isUpdating
+                        ? intl.formatMessage(messages.finishing)
+                        : intl.formatMessage(messages.finish)}
                     </Button>
                   </span>
                 </div>

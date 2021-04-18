@@ -3,19 +3,25 @@ import { defineMessages, useIntl } from 'react-intl';
 import NotificationType from './NotificationType';
 
 const messages = defineMessages({
+  notificationTypes: 'Notification Types',
   mediarequested: 'Media Requested',
   mediarequestedDescription:
-    'Sends a notification when new media is requested. For certain agents, this will only send the notification to admins or users with the "Manage Requests" permission.',
+    'Sends a notification when media is requested and requires approval.',
   mediaapproved: 'Media Approved',
-  mediaapprovedDescription: 'Sends a notification when media is approved.',
+  mediaapprovedDescription:
+    'Sends a notification when requested media is manually approved.',
+  mediaAutoApproved: 'Media Automatically Approved',
+  mediaAutoApprovedDescription:
+    'Sends a notification when requested media is automatically approved.',
   mediaavailable: 'Media Available',
   mediaavailableDescription:
-    'Sends a notification when media becomes available.',
+    'Sends a notification when requested media becomes available.',
   mediafailed: 'Media Failed',
   mediafailedDescription:
-    'Sends a notification when media fails to be added to services (Radarr/Sonarr). For certain agents, this will only send the notification to admins or users with the "Manage Requests" permission.',
+    'Sends a notification when requested media fails to be added to Radarr or Sonarr.',
   mediadeclined: 'Media Declined',
-  mediadeclinedDescription: 'Sends a notification when a request is declined.',
+  mediadeclinedDescription:
+    'Sends a notification when a media request is declined.',
 });
 
 export const hasNotificationType = (
@@ -44,6 +50,7 @@ export enum Notification {
   MEDIA_FAILED = 16,
   TEST_NOTIFICATION = 32,
   MEDIA_DECLINED = 64,
+  MEDIA_AUTO_APPROVED = 128,
 }
 
 export interface NotificationItem {
@@ -73,6 +80,12 @@ const NotificationTypeSelector: React.FC<NotificationTypeSelectorProps> = ({
       value: Notification.MEDIA_PENDING,
     },
     {
+      id: 'media-auto-approved',
+      name: intl.formatMessage(messages.mediaAutoApproved),
+      description: intl.formatMessage(messages.mediaAutoApprovedDescription),
+      value: Notification.MEDIA_AUTO_APPROVED,
+    },
+    {
       id: 'media-approved',
       name: intl.formatMessage(messages.mediaapproved),
       description: intl.formatMessage(messages.mediaapprovedDescription),
@@ -99,16 +112,26 @@ const NotificationTypeSelector: React.FC<NotificationTypeSelectorProps> = ({
   ];
 
   return (
-    <>
-      {types.map((type) => (
-        <NotificationType
-          key={`notification-type-${type.id}`}
-          option={type}
-          currentTypes={currentTypes}
-          onUpdate={onUpdate}
-        />
-      ))}
-    </>
+    <div role="group" aria-labelledby="group-label" className="form-group">
+      <div className="form-row">
+        <span id="group-label" className="group-label">
+          {intl.formatMessage(messages.notificationTypes)}
+          <span className="label-required">*</span>
+        </span>
+        <div className="form-input">
+          <div className="max-w-lg">
+            {types.map((type) => (
+              <NotificationType
+                key={`notification-type-${type.id}`}
+                option={type}
+                currentTypes={currentTypes}
+                onUpdate={onUpdate}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

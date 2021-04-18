@@ -1,30 +1,25 @@
-import React from 'react';
-import { Field, Form, Formik } from 'formik';
-import useSWR from 'swr';
-import LoadingSpinner from '../../../Common/LoadingSpinner';
-import Button from '../../../Common/Button';
-import { defineMessages, useIntl } from 'react-intl';
 import axios from 'axios';
-import * as Yup from 'yup';
+import { Field, Form, Formik } from 'formik';
+import React from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import * as Yup from 'yup';
+import globalMessages from '../../../../i18n/globalMessages';
 import Alert from '../../../Common/Alert';
+import Button from '../../../Common/Button';
+import LoadingSpinner from '../../../Common/LoadingSpinner';
 import NotificationTypeSelector from '../../../NotificationTypeSelector';
 
 const messages = defineMessages({
-  save: 'Save Changes',
-  saving: 'Saving...',
-  agentenabled: 'Agent Enabled',
+  agentenabled: 'Enable Agent',
   webhookUrl: 'Webhook URL',
-  validationWebhookUrlRequired: 'You must provide a webhook URL',
-  webhookUrlPlaceholder: 'Webhook URL',
-  slacksettingssaved: 'Slack notification settings saved!',
+  slacksettingssaved: 'Slack notification settings saved successfully!',
   slacksettingsfailed: 'Slack notification settings failed to save.',
-  testsent: 'Test notification sent!',
-  test: 'Test',
-  settingupslack: 'Setting up Slack Notifications',
+  testsent: 'Slack test notification sent!',
   settingupslackDescription:
-    'To use Slack notifications, you will need to create an <WebhookLink>Incoming Webhook</WebhookLink> integration and use the provided webhook URL below.',
-  notificationtypes: 'Notification Types',
+    'To configure Slack notifications, you will need to create an <WebhookLink>Incoming Webhook</WebhookLink> integration and enter the webhook URL below.',
+  validationWebhookUrl: 'You must provide a valid URL',
 });
 
 const NotificationsSlack: React.FC = () => {
@@ -35,9 +30,15 @@ const NotificationsSlack: React.FC = () => {
   );
 
   const NotificationsSlackSchema = Yup.object().shape({
-    webhookUrl: Yup.string().required(
-      intl.formatMessage(messages.validationWebhookUrlRequired)
-    ),
+    webhookUrl: Yup.string()
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationWebhookUrl)),
+        otherwise: Yup.string().nullable(),
+      })
+      .url(intl.formatMessage(messages.validationWebhookUrl)),
   });
 
   if (!data && !error) {
@@ -46,13 +47,13 @@ const NotificationsSlack: React.FC = () => {
 
   return (
     <>
-      <Alert title={intl.formatMessage(messages.settingupslack)} type="info">
-        {intl.formatMessage(messages.settingupslackDescription, {
+      <Alert
+        title={intl.formatMessage(messages.settingupslackDescription, {
           WebhookLink: function WebhookLink(msg) {
             return (
               <a
                 href="https://my.slack.com/services/new/incoming-webhook/"
-                className="text-indigo-100 hover:text-white hover:underline"
+                className="text-white transition duration-300 hover:underline"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -61,7 +62,8 @@ const NotificationsSlack: React.FC = () => {
             );
           },
         })}
-      </Alert>
+        type="info"
+      />
       <Formik
         initialValues={{
           enabled: data.enabled,
@@ -116,72 +118,34 @@ const NotificationsSlack: React.FC = () => {
           };
 
           return (
-            <Form>
-              <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                <label
-                  htmlFor="isDefault"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+            <Form className="section">
+              <div className="form-row">
+                <label htmlFor="isDefault" className="checkbox-label">
                   {intl.formatMessage(messages.agentenabled)}
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <Field
-                    type="checkbox"
-                    id="enabled"
-                    name="enabled"
-                    className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                  />
+                <div className="form-input">
+                  <Field type="checkbox" id="enabled" name="enabled" />
                 </div>
               </div>
-              <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                <label
-                  htmlFor="name"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              <div className="form-row">
+                <label htmlFor="name" className="text-label">
                   {intl.formatMessage(messages.webhookUrl)}
+                  <span className="label-required">*</span>
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
-                    <Field
-                      id="webhookUrl"
-                      name="webhookUrl"
-                      type="text"
-                      placeholder={intl.formatMessage(
-                        messages.webhookUrlPlaceholder
-                      )}
-                      className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
-                    />
+                <div className="form-input">
+                  <div className="form-input-field">
+                    <Field id="webhookUrl" name="webhookUrl" type="text" />
                   </div>
                   {errors.webhookUrl && touched.webhookUrl && (
-                    <div className="mt-2 text-red-500">{errors.webhookUrl}</div>
+                    <div className="error">{errors.webhookUrl}</div>
                   )}
                 </div>
               </div>
-              <div className="mt-6">
-                <div role="group" aria-labelledby="label-permissions">
-                  <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-baseline">
-                    <div>
-                      <div
-                        className="text-base font-medium leading-6 text-gray-400 sm:text-sm sm:leading-5"
-                        id="label-types"
-                      >
-                        {intl.formatMessage(messages.notificationtypes)}
-                      </div>
-                    </div>
-                    <div className="mt-4 sm:mt-0 sm:col-span-2">
-                      <div className="max-w-lg">
-                        <NotificationTypeSelector
-                          currentTypes={values.types}
-                          onUpdate={(newTypes) =>
-                            setFieldValue('types', newTypes)
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="pt-5 mt-8 border-t border-gray-700">
+              <NotificationTypeSelector
+                currentTypes={values.types}
+                onUpdate={(newTypes) => setFieldValue('types', newTypes)}
+              />
+              <div className="actions">
                 <div className="flex justify-end">
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
                     <Button
@@ -193,7 +157,7 @@ const NotificationsSlack: React.FC = () => {
                         testSettings();
                       }}
                     >
-                      {intl.formatMessage(messages.test)}
+                      {intl.formatMessage(globalMessages.test)}
                     </Button>
                   </span>
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
@@ -203,8 +167,8 @@ const NotificationsSlack: React.FC = () => {
                       disabled={isSubmitting || !isValid}
                     >
                       {isSubmitting
-                        ? intl.formatMessage(messages.saving)
-                        : intl.formatMessage(messages.save)}
+                        ? intl.formatMessage(globalMessages.saving)
+                        : intl.formatMessage(globalMessages.save)}
                     </Button>
                   </span>
                 </div>

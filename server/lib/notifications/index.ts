@@ -1,4 +1,5 @@
 import logger from '../../logger';
+import { getSettings } from '../settings';
 import type { NotificationAgent, NotificationPayload } from './agents/agent';
 
 export enum Notification {
@@ -8,6 +9,7 @@ export enum Notification {
   MEDIA_FAILED = 16,
   TEST_NOTIFICATION = 32,
   MEDIA_DECLINED = 64,
+  MEDIA_AUTO_APPROVED = 128,
 }
 
 export const hasNotificationType = (
@@ -36,18 +38,20 @@ class NotificationManager {
 
   public registerAgents = (agents: NotificationAgent[]): void => {
     this.activeAgents = [...this.activeAgents, ...agents];
-    logger.info('Registered Notification Agents', { label: 'Notifications' });
+    logger.info('Registered notification agents', { label: 'Notifications' });
   };
 
   public sendNotification(
     type: Notification,
     payload: NotificationPayload
   ): void {
-    logger.info(`Sending notification for ${Notification[type]}`, {
+    const settings = getSettings().notifications;
+    logger.info(`Sending notification(s) for ${Notification[type]}`, {
       label: 'Notifications',
+      subject: payload.subject,
     });
     this.activeAgents.forEach((agent) => {
-      if (agent.shouldSend(type)) {
+      if (settings.enabled && agent.shouldSend(type)) {
         agent.send(type, payload);
       }
     });

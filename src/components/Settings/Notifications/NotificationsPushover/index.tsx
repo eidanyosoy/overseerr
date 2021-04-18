@@ -1,33 +1,27 @@
-import React from 'react';
-import { Field, Form, Formik } from 'formik';
-import useSWR from 'swr';
-import LoadingSpinner from '../../../Common/LoadingSpinner';
-import Button from '../../../Common/Button';
-import { defineMessages, useIntl } from 'react-intl';
 import axios from 'axios';
-import * as Yup from 'yup';
+import { Field, Form, Formik } from 'formik';
+import React from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import * as Yup from 'yup';
+import globalMessages from '../../../../i18n/globalMessages';
 import Alert from '../../../Common/Alert';
+import Button from '../../../Common/Button';
+import LoadingSpinner from '../../../Common/LoadingSpinner';
 import NotificationTypeSelector from '../../../NotificationTypeSelector';
 
 const messages = defineMessages({
-  save: 'Save Changes',
-  saving: 'Saving...',
-  agentenabled: 'Agent Enabled',
-  accessToken: 'Access Token',
-  userToken: 'User Token',
-  validationAccessTokenRequired: 'You must provide an access token.',
-  validationUserTokenRequired: 'You must provide a user token.',
-  pushoversettingssaved: 'Pushover notification settings saved!',
+  agentenabled: 'Enable Agent',
+  accessToken: 'Application/API Token',
+  userToken: 'User or Group Key',
+  validationAccessTokenRequired: 'You must provide a valid application token',
+  validationUserTokenRequired: 'You must provide a valid user key',
+  pushoversettingssaved: 'Pushover notification settings saved successfully!',
   pushoversettingsfailed: 'Pushover notification settings failed to save.',
-  testsent: 'Test notification sent!',
-  test: 'Test',
-  settinguppushover: 'Setting up Pushover Notifications',
+  testsent: 'Pushover test notification sent!',
   settinguppushoverDescription:
-    'To setup Pushover you need to <RegisterApplicationLink>register an application</RegisterApplicationLink> and get the access token.\
-    When setting up the application you can use one of the icons in the <IconLink>public folder</IconLink> on github.\
-    You also need the pushover user token which can be found on the start page when you log in.',
-  notificationtypes: 'Notification Types',
+    'To configure Pushover notifications, you will need to <RegisterApplicationLink>register an application</RegisterApplicationLink> and enter the API token below. (You can use one of the <IconLink>official Overseerr icons on GitHub</IconLink>.)',
 });
 
 const NotificationsPushover: React.FC = () => {
@@ -38,12 +32,30 @@ const NotificationsPushover: React.FC = () => {
   );
 
   const NotificationsPushoverSchema = Yup.object().shape({
-    accessToken: Yup.string().required(
-      intl.formatMessage(messages.validationAccessTokenRequired)
-    ),
-    userToken: Yup.string().required(
-      intl.formatMessage(messages.validationUserTokenRequired)
-    ),
+    accessToken: Yup.string()
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationAccessTokenRequired)),
+        otherwise: Yup.string().nullable(),
+      })
+      .matches(
+        /^[a-z\d]{30}$/i,
+        intl.formatMessage(messages.validationAccessTokenRequired)
+      ),
+    userToken: Yup.string()
+      .when('enabled', {
+        is: true,
+        then: Yup.string()
+          .nullable()
+          .required(intl.formatMessage(messages.validationUserTokenRequired)),
+        otherwise: Yup.string().nullable(),
+      })
+      .matches(
+        /^[a-z\d]{30}$/i,
+        intl.formatMessage(messages.validationUserTokenRequired)
+      ),
   });
 
   if (!data && !error) {
@@ -103,15 +115,12 @@ const NotificationsPushover: React.FC = () => {
         return (
           <>
             <Alert
-              title={intl.formatMessage(messages.settinguppushover)}
-              type="info"
-            >
-              {intl.formatMessage(messages.settinguppushoverDescription, {
+              title={intl.formatMessage(messages.settinguppushoverDescription, {
                 RegisterApplicationLink: function RegisterApplicationLink(msg) {
                   return (
                     <a
                       href="https://pushover.net/apps/build"
-                      className="text-indigo-100 hover:text-white hover:underline"
+                      className="text-white transition duration-300 hover:underline"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -123,7 +132,7 @@ const NotificationsPushover: React.FC = () => {
                   return (
                     <a
                       href="https://github.com/sct/overseerr/tree/develop/public"
-                      className="text-indigo-100 hover:text-white hover:underline"
+                      className="text-white transition duration-300 hover:underline"
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -132,93 +141,60 @@ const NotificationsPushover: React.FC = () => {
                   );
                 },
               })}
-            </Alert>
-            <Form>
-              <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                <label
-                  htmlFor="enabled"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              type="info"
+            />
+            <Form className="section">
+              <div className="form-row">
+                <label htmlFor="enabled" className="checkbox-label">
                   {intl.formatMessage(messages.agentenabled)}
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <Field
-                    type="checkbox"
-                    id="enabled"
-                    name="enabled"
-                    className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                  />
+                <div className="form-input">
+                  <Field type="checkbox" id="enabled" name="enabled" />
                 </div>
               </div>
-              <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                <label
-                  htmlFor="accessToken"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              <div className="form-row">
+                <label htmlFor="accessToken" className="text-label">
                   {intl.formatMessage(messages.accessToken)}
+                  <span className="label-required">*</span>
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                <div className="form-input">
+                  <div className="form-input-field">
                     <Field
                       id="accessToken"
                       name="accessToken"
                       type="text"
                       placeholder={intl.formatMessage(messages.accessToken)}
-                      className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.accessToken && touched.accessToken && (
-                    <div className="mt-2 text-red-500">
-                      {errors.accessToken}
-                    </div>
+                    <div className="error">{errors.accessToken}</div>
                   )}
                 </div>
-                <label
-                  htmlFor="userToken"
-                  className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                >
+              </div>
+              <div className="form-row">
+                <label htmlFor="userToken" className="text-label">
                   {intl.formatMessage(messages.userToken)}
+                  <span className="label-required">*</span>
                 </label>
-                <div className="mt-1 sm:mt-0 sm:col-span-2">
-                  <div className="flex max-w-lg rounded-md shadow-sm">
+                <div className="form-input">
+                  <div className="form-input-field">
                     <Field
                       id="userToken"
                       name="userToken"
                       type="text"
                       placeholder={intl.formatMessage(messages.userToken)}
-                      className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                     />
                   </div>
                   {errors.userToken && touched.userToken && (
-                    <div className="mt-2 text-red-500">{errors.userToken}</div>
+                    <div className="error">{errors.userToken}</div>
                   )}
                 </div>
               </div>
-              <div className="mt-6">
-                <div role="group" aria-labelledby="label-permissions">
-                  <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-baseline">
-                    <div>
-                      <div
-                        className="text-base font-medium leading-6 text-gray-400 sm:text-sm sm:leading-5"
-                        id="label-types"
-                      >
-                        {intl.formatMessage(messages.notificationtypes)}
-                      </div>
-                    </div>
-                    <div className="mt-4 sm:mt-0 sm:col-span-2">
-                      <div className="max-w-lg">
-                        <NotificationTypeSelector
-                          currentTypes={values.types}
-                          onUpdate={(newTypes) =>
-                            setFieldValue('types', newTypes)
-                          }
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="pt-5 mt-8 border-t border-gray-700">
+              <NotificationTypeSelector
+                currentTypes={values.types}
+                onUpdate={(newTypes) => setFieldValue('types', newTypes)}
+              />
+              <div className="actions">
                 <div className="flex justify-end">
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
                     <Button
@@ -230,7 +206,7 @@ const NotificationsPushover: React.FC = () => {
                         testSettings();
                       }}
                     >
-                      {intl.formatMessage(messages.test)}
+                      {intl.formatMessage(globalMessages.test)}
                     </Button>
                   </span>
                   <span className="inline-flex ml-3 rounded-md shadow-sm">
@@ -240,8 +216,8 @@ const NotificationsPushover: React.FC = () => {
                       disabled={isSubmitting || !isValid}
                     >
                       {isSubmitting
-                        ? intl.formatMessage(messages.saving)
-                        : intl.formatMessage(messages.save)}
+                        ? intl.formatMessage(globalMessages.saving)
+                        : intl.formatMessage(globalMessages.save)}
                     </Button>
                   </span>
                 </div>

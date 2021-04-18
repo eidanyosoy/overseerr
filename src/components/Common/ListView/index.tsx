@@ -1,12 +1,14 @@
 import React from 'react';
+import { useIntl } from 'react-intl';
 import {
-  TvResult,
   MovieResult,
   PersonResult,
+  TvResult,
 } from '../../../../server/models/Search';
-import TitleCard from '../../TitleCard';
 import useVerticalScroll from '../../../hooks/useVerticalScroll';
+import globalMessages from '../../../i18n/globalMessages';
 import PersonCard from '../../PersonCard';
+import TitleCard from '../../TitleCard';
 
 interface ListViewProps {
   items?: (TvResult | MovieResult | PersonResult)[];
@@ -23,16 +25,17 @@ const ListView: React.FC<ListViewProps> = ({
   onScrollBottom,
   isReachingEnd,
 }) => {
+  const intl = useIntl();
   useVerticalScroll(onScrollBottom, !isLoading && !isEmpty && !isReachingEnd);
   return (
     <>
       {isEmpty && (
         <div className="w-full mt-64 text-2xl text-center text-gray-400">
-          No Results
+          {intl.formatMessage(globalMessages.noresults)}
         </div>
       )}
-      <ul className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8">
-        {items?.map((title) => {
+      <ul className="cards-vertical">
+        {items?.map((title, index) => {
           let titleCard: React.ReactNode;
 
           switch (title.mediaType) {
@@ -47,6 +50,9 @@ const ListView: React.FC<ListViewProps> = ({
                   userScore={title.voteAverage}
                   year={title.releaseDate}
                   mediaType={title.mediaType}
+                  inProgress={
+                    (title.mediaInfo?.downloadStatus ?? []).length > 0
+                  }
                   canExpand
                 />
               );
@@ -62,6 +68,9 @@ const ListView: React.FC<ListViewProps> = ({
                   userScore={title.voteAverage}
                   year={title.firstAirDate}
                   mediaType={title.mediaType}
+                  inProgress={
+                    (title.mediaInfo?.downloadStatus ?? []).length > 0
+                  }
                   canExpand
                 />
               );
@@ -78,22 +87,12 @@ const ListView: React.FC<ListViewProps> = ({
               break;
           }
 
-          return (
-            <li
-              key={title.id}
-              className="col-span-1 flex flex-col text-center items-center"
-            >
-              {titleCard}
-            </li>
-          );
+          return <li key={`${title.id}-${index}`}>{titleCard}</li>;
         })}
         {isLoading &&
           !isReachingEnd &&
           [...Array(20)].map((_item, i) => (
-            <li
-              key={`placeholder-${i}`}
-              className="col-span-1 flex flex-col text-center items-center"
-            >
+            <li key={`placeholder-${i}`}>
               <TitleCard.Placeholder canExpand />
             </li>
           ))}

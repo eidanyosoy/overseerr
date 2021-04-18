@@ -1,10 +1,11 @@
+import { LoginIcon } from '@heroicons/react/outline';
 import React, { useState } from 'react';
-import PlexOAuth from '../../utils/plex';
 import { defineMessages, useIntl } from 'react-intl';
+import globalMessages from '../../i18n/globalMessages';
+import PlexOAuth from '../../utils/plex';
 
 const messages = defineMessages({
-  signinwithplex: 'Sign in',
-  loading: 'Loading…',
+  signinwithplex: 'Sign In',
   signingin: 'Signing in…',
 });
 
@@ -48,8 +49,9 @@ const PlexLoginButton: React.FC<PlexLoginButtonProps> = ({
         disabled={loading || isProcessing}
         className="plex-button"
       >
+        <LoginIcon className="w-5 h-5 mr-1" />
         {loading
-          ? intl.formatMessage(messages.loading)
+          ? intl.formatMessage(globalMessages.loading)
           : isProcessing
           ? intl.formatMessage(messages.signingin)
           : intl.formatMessage(messages.signinwithplex)}

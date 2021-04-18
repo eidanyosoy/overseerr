@@ -1,6 +1,6 @@
 import React from 'react';
-import { PublicSettingsResponse } from '../../server/interfaces/api/settingsInterfaces';
 import useSWR from 'swr';
+import { PublicSettingsResponse } from '../../server/interfaces/api/settingsInterfaces';
 
 export interface SettingsContextProps {
   currentSettings: PublicSettingsResponse;
@@ -8,9 +8,15 @@ export interface SettingsContextProps {
 
 const defaultSettings = {
   initialized: false,
+  applicationTitle: 'Overseerr',
+  hideAvailable: false,
+  localLogin: true,
   movie4kEnabled: false,
   series4kEnabled: false,
-  hideAvailable: false,
+  region: '',
+  originalLanguage: '',
+  partialRequestsEnabled: true,
+  cacheImages: false,
 };
 
 export const SettingsContext = React.createContext<SettingsContextProps>({

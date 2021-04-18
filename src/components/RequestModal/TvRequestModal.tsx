@@ -1,52 +1,48 @@
-import React, { useState } from 'react';
-import Modal from '../Common/Modal';
-import { useUser } from '../../hooks/useUser';
-import { Permission } from '../../../server/lib/permissions';
-import { defineMessages, useIntl } from 'react-intl';
-import { MediaRequest } from '../../../server/entity/MediaRequest';
-import useSWR from 'swr';
-import { useToasts } from 'react-toast-notifications';
-import { ANIME_KEYWORD_ID } from '../../../server/api/themoviedb';
+import { DownloadIcon } from '@heroicons/react/outline';
 import axios from 'axios';
+import React, { useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
+import { useToasts } from 'react-toast-notifications';
+import useSWR from 'swr';
+import { ANIME_KEYWORD_ID } from '../../../server/api/themoviedb/constants';
 import {
-  MediaStatus,
   MediaRequestStatus,
+  MediaStatus,
 } from '../../../server/constants/media';
-import { TvDetails } from '../../../server/models/Tv';
-import Badge from '../Common/Badge';
-import globalMessages from '../../i18n/globalMessages';
+import { MediaRequest } from '../../../server/entity/MediaRequest';
 import SeasonRequest from '../../../server/entity/SeasonRequest';
+import { QuotaResponse } from '../../../server/interfaces/api/userInterfaces';
+import { Permission } from '../../../server/lib/permissions';
+import { TvDetails } from '../../../server/models/Tv';
+import useSettings from '../../hooks/useSettings';
+import { useUser } from '../../hooks/useUser';
+import globalMessages from '../../i18n/globalMessages';
 import Alert from '../Common/Alert';
+import Badge from '../Common/Badge';
+import Modal from '../Common/Modal';
 import AdvancedRequester, { RequestOverrides } from './AdvancedRequester';
+import QuotaDisplay from './QuotaDisplay';
 import SearchByNameModal from './SearchByNameModal';
 
 const messages = defineMessages({
-  requestadmin: 'Your request will be immediately approved.',
-  cancelrequest:
-    'This will remove your request. Are you sure you want to continue?',
-  requestSuccess: '<strong>{title}</strong> successfully requested!',
+  requestadmin: 'This request will be approved automatically.',
+  requestSuccess: '<strong>{title}</strong> requested successfully!',
   requesttitle: 'Request {title}',
   request4ktitle: 'Request {title} in 4K',
-  requesting: 'Requesting...',
   requestseasons:
     'Request {seasonCount} {seasonCount, plural, one {Season} other {Seasons}}',
-  selectseason: 'Select season(s)',
+  requestall: 'Request All Seasons',
+  alreadyrequested: 'Already Requested',
+  selectseason: 'Select Season(s)',
   season: 'Season',
   numberofepisodes: '# of Episodes',
-  status: 'Status',
   seasonnumber: 'Season {number}',
   extras: 'Extras',
-  notrequested: 'Not Requested',
-  errorediting: 'Something went wrong editing the request.',
-  requestedited: 'Request edited.',
-  requestcancelled: 'Request cancelled.',
-  autoapproval: 'Auto Approval',
-  requesterror: 'Something went wrong when trying to request media.',
-  next: 'Next',
-  notvdbid: 'No TVDB id was found connected on TMDB',
-  notvdbiddescription:
-    'Either add the TVDB id to TMDB and come back later, or select the correct match below.',
-  backbutton: 'Back',
+  errorediting: 'Something went wrong while editing the request.',
+  requestedited: 'Request for <strong>{title}</strong> edited successfully!',
+  requestcancelled: 'Request for <strong>{title}</strong> canceled.',
+  autoapproval: 'Automatic Approval',
+  requesterror: 'Something went wrong while submitting the request.',
 });
 
 interface RequestModalProps extends React.HTMLAttributes<HTMLDivElement> {
@@ -66,6 +62,7 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
   editRequest,
   is4k = false,
 }) => {
+  const settings = useSettings();
   const { addToast } = useToasts();
   const editingSeasons: number[] = (editRequest?.seasons ?? []).map(
     (season) => season.seasonNumber
@@ -79,13 +76,19 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
     editRequest ? editingSeasons : []
   );
   const intl = useIntl();
-  const { hasPermission } = useUser();
+  const { user, hasPermission } = useUser();
   const [searchModal, setSearchModal] = useState<{
     show: boolean;
   }>({
     show: true,
   });
   const [tvdbId, setTvdbId] = useState<number | undefined>(undefined);
+  const { data: quota } = useSWR<QuotaResponse>(
+    user ? `/api/v1/user/${requestOverrides?.user?.id ?? user.id}/quota` : null
+  );
+
+  const currentlyRemaining =
+    (quota?.tv.remaining ?? 0) - selectedSeasons.length;
 
   const updateRequest = async () => {
     if (!editRequest) {
@@ -103,6 +106,9 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
           serverId: requestOverrides?.server,
           profileId: requestOverrides?.profile,
           rootFolder: requestOverrides?.folder,
+          languageProfileId: requestOverrides?.language,
+          userId: requestOverrides?.user?.id,
+          tags: requestOverrides?.tags,
           seasons: selectedSeasons,
         });
       } else {
@@ -112,8 +118,18 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
       addToast(
         <span>
           {selectedSeasons.length > 0
-            ? intl.formatMessage(messages.requestedited)
-            : intl.formatMessage(messages.requestcancelled)}
+            ? intl.formatMessage(messages.requestedited, {
+                title: data?.name,
+                strong: function strong(msg) {
+                  return <strong>{msg}</strong>;
+                },
+              })
+            : intl.formatMessage(messages.requestcancelled, {
+                title: data?.name,
+                strong: function strong(msg) {
+                  return <strong>{msg}</strong>;
+                },
+              })}
         </span>,
         {
           appearance: 'success',
@@ -136,9 +152,13 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
   };
 
   const sendRequest = async () => {
-    if (selectedSeasons.length === 0) {
+    if (
+      settings.currentSettings.partialRequestsEnabled &&
+      selectedSeasons.length === 0
+    ) {
       return;
     }
+
     if (onUpdating) {
       onUpdating(true);
     }
@@ -150,6 +170,9 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
           serverId: requestOverrides.server,
           profileId: requestOverrides.profile,
           rootFolder: requestOverrides.folder,
+          languageProfileId: requestOverrides.language,
+          userId: requestOverrides?.user?.id,
+          tags: requestOverrides.tags,
         };
       }
       const response = await axios.post<MediaRequest>('/api/v1/request', {
@@ -157,7 +180,11 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
         tvdbId: tvdbId ?? data?.externalIds.tvdbId,
         mediaType: 'tv',
         is4k,
-        seasons: selectedSeasons,
+        seasons: settings.currentSettings.partialRequestsEnabled
+          ? selectedSeasons
+          : getAllSeasons().filter(
+              (season) => !getAllRequestedSeasons().includes(season)
+            ),
         ...overrideParams,
       });
 
@@ -189,6 +216,12 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
     }
   };
 
+  const getAllSeasons = (): number[] => {
+    return (data?.seasons ?? [])
+      .filter((season) => season.seasonNumber !== 0)
+      .map((season) => season.seasonNumber);
+  };
+
   const getAllRequestedSeasons = (): number[] => {
     const requestedSeasons = (data?.mediaInfo?.requests ?? [])
       .filter(
@@ -210,7 +243,8 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
         (season) =>
           (season[is4k ? 'status4k' : 'status'] === MediaStatus.AVAILABLE ||
             season[is4k ? 'status4k' : 'status'] ===
-              MediaStatus.PARTIALLY_AVAILABLE) &&
+              MediaStatus.PARTIALLY_AVAILABLE ||
+            season[is4k ? 'status4k' : 'status'] === MediaStatus.PROCESSING) &&
           !requestedSeasons.includes(season.seasonNumber)
       )
       .map((season) => season.seasonNumber);
@@ -227,6 +261,15 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
       return;
     }
 
+    // If there are no more remaining requests available, block toggle
+    if (
+      quota?.tv.limit &&
+      currentlyRemaining <= 0 &&
+      !isSelectedSeason(seasonNumber)
+    ) {
+      return;
+    }
+
     if (selectedSeasons.includes(seasonNumber)) {
       setSelectedSeasons((seasons) =>
         seasons.filter((sn) => sn !== seasonNumber)
@@ -236,25 +279,25 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
     }
   };
 
+  const unrequestedSeasons = getAllSeasons().filter(
+    (season) => !getAllRequestedSeasons().includes(season)
+  );
+
   const toggleAllSeasons = (): void => {
+    // If the user has a quota and not enough requests for all seasons, block toggleAllSeasons
+    if (
+      quota?.tv.limit &&
+      (quota?.tv.remaining ?? 0) < unrequestedSeasons.length
+    ) {
+      return;
+    }
+
     if (
       data &&
       selectedSeasons.length >= 0 &&
-      selectedSeasons.length <
-        data?.seasons
-          .filter((season) => season.seasonNumber !== 0)
-          .filter(
-            (season) => !getAllRequestedSeasons().includes(season.seasonNumber)
-          ).length
+      selectedSeasons.length < unrequestedSeasons.length
     ) {
-      setSelectedSeasons(
-        data.seasons
-          .filter((season) => season.seasonNumber !== 0)
-          .filter(
-            (season) => !getAllRequestedSeasons().includes(season.seasonNumber)
-          )
-          .map((season) => season.seasonNumber)
-      );
+      setSelectedSeasons(unrequestedSeasons);
     } else {
       setSelectedSeasons([]);
     }
@@ -266,11 +309,9 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
     }
     return (
       selectedSeasons.length ===
-      data.seasons
-        .filter((season) => season.seasonNumber !== 0)
-        .filter(
-          (season) => !getAllRequestedSeasons().includes(season.seasonNumber)
-        ).length
+      getAllSeasons().filter(
+        (season) => !getAllRequestedSeasons().includes(season)
+      ).length
     );
   };
 
@@ -327,51 +368,86 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
       okText={
         editRequest && selectedSeasons.length === 0
           ? 'Cancel Request'
+          : getAllRequestedSeasons().length >= getAllSeasons().length
+          ? intl.formatMessage(messages.alreadyrequested)
+          : !settings.currentSettings.partialRequestsEnabled
+          ? intl.formatMessage(messages.requestall)
           : selectedSeasons.length === 0
           ? intl.formatMessage(messages.selectseason)
           : intl.formatMessage(messages.requestseasons, {
               seasonCount: selectedSeasons.length,
             })
       }
-      okDisabled={editRequest ? false : selectedSeasons.length === 0}
+      okDisabled={
+        editRequest
+          ? false
+          : !settings.currentSettings.partialRequestsEnabled &&
+            quota?.tv.limit &&
+            unrequestedSeasons.length > quota.tv.limit
+          ? true
+          : getAllRequestedSeasons().length >= getAllSeasons().length ||
+            (settings.currentSettings.partialRequestsEnabled &&
+              selectedSeasons.length === 0)
+      }
       okButtonType={
-        editRequest && selectedSeasons.length === 0 ? 'danger' : `primary`
+        editRequest &&
+        settings.currentSettings.partialRequestsEnabled &&
+        selectedSeasons.length === 0
+          ? 'danger'
+          : `primary`
       }
       cancelText={
         tvdbId
-          ? intl.formatMessage(messages.backbutton)
+          ? intl.formatMessage(globalMessages.back)
           : intl.formatMessage(globalMessages.cancel)
       }
-      iconSvg={
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-          />
-        </svg>
-      }
+      iconSvg={<DownloadIcon className="w-6 h-6" />}
     >
-      {(hasPermission(Permission.MANAGE_REQUESTS) ||
-        hasPermission(Permission.AUTO_APPROVE) ||
-        hasPermission(Permission.AUTO_APPROVE_TV)) &&
+      {hasPermission(
+        [
+          Permission.MANAGE_REQUESTS,
+          is4k ? Permission.AUTO_APPROVE_4K : Permission.AUTO_APPROVE,
+          is4k ? Permission.AUTO_APPROVE_4K_TV : Permission.AUTO_APPROVE_TV,
+        ],
+        { type: 'or' }
+      ) &&
+        !(
+          quota?.tv.limit &&
+          !settings.currentSettings.partialRequestsEnabled &&
+          unrequestedSeasons.length > (quota?.tv.limit ?? 0)
+        ) &&
+        getAllRequestedSeasons().length < getAllSeasons().length &&
         !editRequest && (
           <p className="mt-6">
             <Alert
-              title={intl.formatMessage(messages.autoapproval)}
+              title={intl.formatMessage(messages.requestadmin)}
               type="info"
-            >
-              {intl.formatMessage(messages.requestadmin)}
-            </Alert>
+            />
           </p>
         )}
+      {(quota?.tv.limit ?? 0) > 0 && (
+        <QuotaDisplay
+          mediaType="tv"
+          quota={quota?.tv}
+          remaining={
+            !settings.currentSettings.partialRequestsEnabled &&
+            unrequestedSeasons.length > (quota?.tv.limit ?? 0)
+              ? 0
+              : currentlyRemaining
+          }
+          userOverride={
+            requestOverrides?.user && requestOverrides.user.id !== user?.id
+              ? requestOverrides?.user?.id
+              : undefined
+          }
+          overLimit={
+            !settings.currentSettings.partialRequestsEnabled &&
+            unrequestedSeasons.length > (quota?.tv.limit ?? 0)
+              ? unrequestedSeasons.length
+              : undefined
+          }
+        />
+      )}
       <div className="flex flex-col">
         <div className="-mx-4 sm:mx-0">
           <div className="inline-block min-w-full py-2 align-middle">
@@ -379,7 +455,12 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
               <table className="min-w-full">
                 <thead>
                   <tr>
-                    <th className="w-16 px-4 py-3 bg-gray-500">
+                    <th
+                      className={`w-16 px-4 py-3 bg-gray-500 ${
+                        !settings.currentSettings.partialRequestsEnabled &&
+                        'hidden'
+                      }`}
+                    >
                       <span
                         role="checkbox"
                         tabIndex={0}
@@ -390,7 +471,13 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                             toggleAllSeasons();
                           }
                         }}
-                        className="relative inline-flex items-center justify-center flex-shrink-0 w-10 h-5 cursor-pointer group focus:outline-none"
+                        className={`relative inline-flex items-center justify-center flex-shrink-0 w-10 h-5 pt-2 cursor-pointer focus:outline-none ${
+                          quota?.tv.remaining &&
+                          quota.tv.limit &&
+                          quota.tv.remaining < unrequestedSeasons.length
+                            ? 'opacity-50'
+                            : ''
+                        }`}
                       >
                         <span
                           aria-hidden="true"
@@ -413,7 +500,7 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                       {intl.formatMessage(messages.numberofepisodes)}
                     </th>
                     <th className="px-2 py-3 text-xs font-medium leading-4 tracking-wider text-left text-gray-200 uppercase bg-gray-500 md:px-6">
-                      {intl.formatMessage(messages.status)}
+                      {intl.formatMessage(globalMessages.status)}
                     </th>
                   </tr>
                 </thead>
@@ -432,7 +519,12 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                       );
                       return (
                         <tr key={`season-${season.id}`}>
-                          <td className="px-4 py-4 text-sm font-medium leading-5 text-gray-100 whitespace-nowrap">
+                          <td
+                            className={`px-4 py-4 text-sm font-medium leading-5 text-gray-100 whitespace-nowrap ${
+                              !settings.currentSettings
+                                .partialRequestsEnabled && 'hidden'
+                            }`}
+                          >
                             <span
                               role="checkbox"
                               tabIndex={0}
@@ -450,8 +542,11 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                                   toggleSeason(season.seasonNumber);
                                 }
                               }}
-                              className={`group relative inline-flex items-center justify-center flex-shrink-0 h-5 w-10 cursor-pointer focus:outline-none ${
+                              className={`pt-2 relative inline-flex items-center justify-center flex-shrink-0 h-5 w-10 cursor-pointer focus:outline-none ${
                                 mediaSeason ||
+                                (quota?.tv.limit &&
+                                  currentlyRemaining <= 0 &&
+                                  !isSelectedSeason(season.seasonNumber)) ||
                                 (!!seasonRequest &&
                                   !editingSeasons.includes(season.seasonNumber))
                                   ? 'opacity-50'
@@ -499,7 +594,9 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                           <td className="py-4 pr-2 text-sm leading-5 text-gray-200 md:px-6 whitespace-nowrap">
                             {!seasonRequest && !mediaSeason && (
                               <Badge>
-                                {intl.formatMessage(messages.notrequested)}
+                                {intl.formatMessage(
+                                  globalMessages.notrequested
+                                )}
                               </Badge>
                             )}
                             {!mediaSeason &&
@@ -509,20 +606,15 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
                                   {intl.formatMessage(globalMessages.pending)}
                                 </Badge>
                               )}
-                            {!mediaSeason &&
+                            {((!mediaSeason &&
                               seasonRequest?.status ===
-                                MediaRequestStatus.APPROVED && (
-                                <Badge badgeType="primary">
-                                  {intl.formatMessage(globalMessages.requested)}
-                                </Badge>
-                              )}
-                            {!mediaSeason &&
-                              seasonRequest?.status ===
-                                MediaRequestStatus.AVAILABLE && (
-                                <Badge badgeType="success">
-                                  {intl.formatMessage(globalMessages.available)}
-                                </Badge>
-                              )}
+                                MediaRequestStatus.APPROVED) ||
+                              mediaSeason?.[is4k ? 'status4k' : 'status'] ===
+                                MediaStatus.PROCESSING) && (
+                              <Badge badgeType="primary">
+                                {intl.formatMessage(globalMessages.requested)}
+                              </Badge>
+                            )}
                             {mediaSeason?.[is4k ? 'status4k' : 'status'] ===
                               MediaStatus.PARTIALLY_AVAILABLE && (
                               <Badge badgeType="success">
@@ -547,7 +639,8 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
           </div>
         </div>
       </div>
-      {hasPermission(Permission.REQUEST_ADVANCED) && (
+      {(hasPermission(Permission.REQUEST_ADVANCED) ||
+        hasPermission(Permission.MANAGE_REQUESTS)) && (
         <div className="mt-4">
           <AdvancedRequester
             type="tv"
@@ -556,12 +649,15 @@ const TvRequestModal: React.FC<RequestModalProps> = ({
               (keyword) => keyword.id === ANIME_KEYWORD_ID
             )}
             onChange={(overrides) => setRequestOverrides(overrides)}
+            requestUser={editRequest?.requestedBy}
             defaultOverrides={
               editRequest
                 ? {
                     folder: editRequest.rootFolder,
                     profile: editRequest.profileId,
                     server: editRequest.serverId,
+                    language: editRequest.languageProfileId,
+                    tags: editRequest.tags,
                   }
                 : undefined
             }

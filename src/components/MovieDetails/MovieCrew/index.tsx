@@ -9,6 +9,7 @@ import Error from '../../../pages/_error';
 import Header from '../../Common/Header';
 import LoadingSpinner from '../../Common/LoadingSpinner';
 import PersonCard from '../../PersonCard';
+import PageTitle from '../../Common/PageTitle';
 
 const messages = defineMessages({
   fullcrew: 'Full Crew',
@@ -32,22 +33,22 @@ const MovieCrew: React.FC = () => {
 
   return (
     <>
-      <Header
-        subtext={
-          <Link href={`/movie/${data.id}`}>
-            <a className="hover:underline">{data.title}</a>
-          </Link>
-        }
-      >
-        {intl.formatMessage(messages.fullcrew)}
-      </Header>
-      <ul className="grid grid-cols-2 gap-6 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-7 2xl:grid-cols-8">
+      <PageTitle title={[intl.formatMessage(messages.fullcrew), data.title]} />
+      <div className="mt-1 mb-5">
+        <Header
+          subtext={
+            <Link href={`/movie/${data.id}`}>
+              <a className="hover:underline">{data.title}</a>
+            </Link>
+          }
+        >
+          {intl.formatMessage(messages.fullcrew)}
+        </Header>
+      </div>
+      <ul className="cards-vertical">
         {data?.credits.crew.map((person, index) => {
           return (
-            <li
-              key={`crew-${person.id}-${index}`}
-              className="flex flex-col items-center col-span-1 text-center"
-            >
+            <li key={`crew-${person.id}-${index}`}>
               <PersonCard
                 name={person.name}
                 personId={person.id}

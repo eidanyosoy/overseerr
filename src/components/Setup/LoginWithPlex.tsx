@@ -1,12 +1,12 @@
+import axios from 'axios';
 import React, { useEffect, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
 import { useUser } from '../../hooks/useUser';
 import PlexLoginButton from '../PlexLoginButton';
-import axios from 'axios';
-import { defineMessages, FormattedMessage } from 'react-intl';
 
 const messages = defineMessages({
   welcome: 'Welcome to Overseerr',
-  signinMessage: 'Get started by logging in with your Plex account',
+  signinMessage: 'Get started by signing in with your Plex account',
 });
 
 interface LoginWithPlexProps {
@@ -14,6 +14,7 @@ interface LoginWithPlexProps {
 }
 
 const LoginWithPlex: React.FC<LoginWithPlexProps> = ({ onComplete }) => {
+  const intl = useIntl();
   const [authToken, setAuthToken] = useState<string | undefined>(undefined);
   const { user, revalidate } = useUser();
 
@@ -23,9 +24,9 @@ const LoginWithPlex: React.FC<LoginWithPlexProps> = ({ onComplete }) => {
 
   useEffect(() => {
     const login = async () => {
-      const response = await axios.post('/api/v1/auth/login', { authToken });
+      const response = await axios.post('/api/v1/auth/plex', { authToken });
 
-      if (response.data?.email) {
+      if (response.data?.id) {
         revalidate();
       }
     };
@@ -44,11 +45,11 @@ const LoginWithPlex: React.FC<LoginWithPlexProps> = ({ onComplete }) => {
 
   return (
     <form>
-      <div className="flex justify-center font-bold text-xl mb-2">
-        <FormattedMessage {...messages.welcome} />
+      <div className="flex justify-center mb-2 text-xl font-bold">
+        {intl.formatMessage(messages.welcome)}
       </div>
-      <div className="flex justify-center text-sm pb-6 mb-2">
-        <FormattedMessage {...messages.signinMessage} />
+      <div className="flex justify-center pb-6 mb-2 text-sm">
+        {intl.formatMessage(messages.signinMessage)}
       </div>
       <div className="flex items-center justify-center">
         <PlexLoginButton onAuthToken={(authToken) => setAuthToken(authToken)} />

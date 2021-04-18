@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { hasNotificationType, Notification } from '..';
+import { MediaType } from '../../../constants/media';
 import logger from '../../../logger';
 import { getSettings, NotificationAgentSlack } from '../../settings';
 import { BaseAgent, NotificationAgent, NotificationPayload } from './agent';
@@ -58,77 +59,87 @@ class SlackAgent
     payload: NotificationPayload
   ): SlackBlockEmbed {
     const settings = getSettings();
-    let header = 'Overseerr';
+    let header = '';
     let actionUrl: string | undefined;
 
     const fields: EmbedField[] = [];
 
+    if (payload.request) {
+      fields.push({
+        type: 'mrkdwn',
+        text: `*Requested By*\n${payload.request.requestedBy.displayName}`,
+      });
+    }
+
     switch (type) {
       case Notification.MEDIA_PENDING:
-        header = 'New Request';
-        fields.push(
-          {
-            type: 'mrkdwn',
-            text: `*Requested By*\n${payload.notifyUser.username ?? ''}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: '*Status*\nPending Approval',
-          }
-        );
-        if (settings.main.applicationUrl) {
-          actionUrl = `${settings.main.applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`;
-        }
+        header = `New ${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Request`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nPending Approval',
+        });
         break;
       case Notification.MEDIA_APPROVED:
-        header = 'Request Approved';
-        fields.push(
-          {
-            type: 'mrkdwn',
-            text: `*Requested By*\n${payload.notifyUser.username ?? ''}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: '*Status*\nProcessing Request',
-          }
-        );
-        if (settings.main.applicationUrl) {
-          actionUrl = `${settings.main.applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`;
-        }
+        header = `${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Request Approved`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nProcessing',
+        });
         break;
-      case Notification.MEDIA_DECLINED:
-        header = 'Request Declined';
-        fields.push(
-          {
-            type: 'mrkdwn',
-            text: `*Requested By*\n${payload.notifyUser.username ?? ''}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: '*Status*\nDeclined',
-          }
-        );
-        if (settings.main.applicationUrl) {
-          actionUrl = `${settings.main.applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`;
-        }
+      case Notification.MEDIA_AUTO_APPROVED:
+        header = `${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Request Automatically Approved`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nProcessing',
+        });
         break;
       case Notification.MEDIA_AVAILABLE:
-        header = 'Now available!';
-        fields.push(
-          {
-            type: 'mrkdwn',
-            text: `*Requested By*\n${payload.notifyUser.username ?? ''}`,
-          },
-          {
-            type: 'mrkdwn',
-            text: '*Status*\nAvailable',
-          }
-        );
-
-        if (settings.main.applicationUrl) {
-          actionUrl = `${settings.main.applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`;
-        }
+        header = `${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Now Available`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nAvailable',
+        });
         break;
+      case Notification.MEDIA_DECLINED:
+        header = `${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Request Declined`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nDeclined',
+        });
+        break;
+      case Notification.MEDIA_FAILED:
+        header = `Failed ${
+          payload.media?.mediaType === MediaType.TV ? 'Series' : 'Movie'
+        } Request`;
+        fields.push({
+          type: 'mrkdwn',
+          text: '*Status*\nFailed',
+        });
+        break;
+      case Notification.TEST_NOTIFICATION:
+        header = 'Test Notification';
+        break;
+    }
+
+    for (const extra of payload.extra ?? []) {
+      fields.push({
+        type: 'mrkdwn',
+        text: `*${extra.name}*\n${extra.value}`,
+      });
+    }
+
+    if (settings.main.applicationUrl && payload.media) {
+      actionUrl = `${settings.main.applicationUrl}/${payload.media?.mediaType}/${payload.media?.tmdbId}`;
     }
 
     const blocks: EmbedBlock[] = [
@@ -139,14 +150,17 @@ class SlackAgent
           text: header,
         },
       },
-      {
+    ];
+
+    if (type !== Notification.TEST_NOTIFICATION) {
+      blocks.push({
         type: 'section',
         text: {
           type: 'mrkdwn',
           text: `*${payload.subject}*`,
         },
-      },
-    ];
+      });
+    }
 
     if (payload.message) {
       blocks.push({
@@ -191,7 +205,7 @@ class SlackAgent
             value: 'open_overseerr',
             text: {
               type: 'plain_text',
-              text: 'Open Overseerr',
+              text: `Open in ${settings.main.applicationTitle}`,
             },
           },
         ],
@@ -219,7 +233,11 @@ class SlackAgent
     type: Notification,
     payload: NotificationPayload
   ): Promise<boolean> {
-    logger.debug('Sending slack notification', { label: 'Notifications' });
+    logger.debug('Sending Slack notification', {
+      label: 'Notifications',
+      type: Notification[type],
+      subject: payload.subject,
+    });
     try {
       const webhookUrl = this.getSettings().options.webhookUrl;
 
@@ -233,8 +251,12 @@ class SlackAgent
     } catch (e) {
       logger.error('Error sending Slack notification', {
         label: 'Notifications',
-        message: e.message,
+        type: Notification[type],
+        subject: payload.subject,
+        errorMessage: e.message,
+        response: e.response.data,
       });
+
       return false;
     }
   }

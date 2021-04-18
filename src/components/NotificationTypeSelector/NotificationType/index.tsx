@@ -1,5 +1,5 @@
 import React from 'react';
-import { NotificationItem, hasNotificationType } from '..';
+import { hasNotificationType, NotificationItem } from '..';
 
 interface NotificationTypeProps {
   option: NotificationItem;
@@ -23,12 +23,11 @@ const NotificationType: React.FC<NotificationTypeProps> = ({
             : ''
         }`}
       >
-        <div className="flex items-center h-5">
+        <div className="flex items-center h-6">
           <input
             id={option.id}
             name="permissions"
             type="checkbox"
-            className="w-4 h-4 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
             disabled={
               !!parent?.value && hasNotificationType(parent.value, currentTypes)
             }
@@ -46,8 +45,8 @@ const NotificationType: React.FC<NotificationTypeProps> = ({
             }
           />
         </div>
-        <div className="ml-3 text-sm leading-5">
-          <label htmlFor={option.id} className="font-medium">
+        <div className="ml-3 text-sm leading-6">
+          <label htmlFor={option.id} className="font-medium text-white">
             {option.name}
           </label>
           <p className="text-gray-500">{option.description}</p>

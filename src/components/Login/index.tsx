@@ -1,19 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import PlexLoginButton from '../PlexLoginButton';
-import { useUser } from '../../hooks/useUser';
+import { XCircleIcon } from '@heroicons/react/solid';
 import axios from 'axios';
 import { useRouter } from 'next/dist/client/router';
-import ImageFader from '../Common/ImageFader';
-import { defineMessages, FormattedMessage, useIntl } from 'react-intl';
-import Transition from '../Transition';
-import LanguagePicker from '../Layout/LanguagePicker';
-import LocalLogin from './LocalLogin';
+import React, { useEffect, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
+import useSettings from '../../hooks/useSettings';
+import { useUser } from '../../hooks/useUser';
 import Accordion from '../Common/Accordion';
+import ImageFader from '../Common/ImageFader';
+import PageTitle from '../Common/PageTitle';
+import LanguagePicker from '../Layout/LanguagePicker';
+import PlexLoginButton from '../PlexLoginButton';
+import Transition from '../Transition';
+import LocalLogin from './LocalLogin';
 
 const messages = defineMessages({
+  signin: 'Sign In',
   signinheader: 'Sign in to continue',
-  signinwithplex: 'Sign in with Plex',
-  signinwithoverseerr: 'Sign in with Overseerr',
+  signinwithplex: 'Use your Plex account',
+  signinwithoverseerr: 'Use your {applicationTitle} account',
 });
 
 const Login: React.FC = () => {
@@ -23,17 +27,18 @@ const Login: React.FC = () => {
   const [authToken, setAuthToken] = useState<string | undefined>(undefined);
   const { user, revalidate } = useUser();
   const router = useRouter();
+  const settings = useSettings();
 
   // Effect that is triggered when the `authToken` comes back from the Plex OAuth
-  // We take the token and attempt to login. If we get a success message, we will
+  // We take the token and attempt to sign in. If we get a success message, we will
   // ask swr to revalidate the user which _should_ come back with a valid user.
   useEffect(() => {
     const login = async () => {
       setProcessing(true);
       try {
-        const response = await axios.post('/api/v1/auth/login', { authToken });
+        const response = await axios.post('/api/v1/auth/plex', { authToken });
 
-        if (response.data?.email) {
+        if (response.data?.id) {
           revalidate();
         }
       } catch (e) {
@@ -57,7 +62,9 @@ const Login: React.FC = () => {
 
   return (
     <div className="relative flex flex-col min-h-screen bg-gray-900 py-14">
+      <PageTitle title={intl.formatMessage(messages.signin)} />
       <ImageFader
+        forceOptimize
         backgroundImages={[
           '/images/rotate1.jpg',
           '/images/rotate2.jpg',
@@ -71,13 +78,9 @@ const Login: React.FC = () => {
         <LanguagePicker />
       </div>
       <div className="relative z-40 px-4 sm:mx-auto sm:w-full sm:max-w-md">
-        <img
-          src="/logo.png"
-          className="w-auto mx-auto max-h-32"
-          alt="Overseerr Logo"
-        />
+        <img src="/logo.png" className="max-w-full" alt="Logo" />
         <h2 className="mt-2 text-3xl font-extrabold leading-9 text-center text-gray-100">
-          <FormattedMessage {...messages.signinheader} />
+          {intl.formatMessage(messages.signinheader)}
         </h2>
       </div>
       <div className="relative z-50 mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -98,19 +101,7 @@ const Login: React.FC = () => {
               <div className="p-4 mb-4 bg-red-600 rounded-md">
                 <div className="flex">
                   <div className="flex-shrink-0">
-                    <svg
-                      className="w-5 h-5 text-red-300"
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
+                    <XCircleIcon className="w-5 h-5 text-red-300" />
                   </div>
                   <div className="ml-3">
                     <h3 className="text-sm font-medium text-red-300">
@@ -124,10 +115,14 @@ const Login: React.FC = () => {
               {({ openIndexes, handleClick, AccordionContent }) => (
                 <>
                   <button
-                    className={`text-sm w-full focus:outline-none transition-colors duration-200 py-2 bg-gray-800 hover:bg-gray-700 bg-opacity-70 hover:bg-opacity-70 sm:rounded-t-lg text-center text-gray-400 ${
+                    className={`w-full py-2 text-sm text-center text-gray-400 transition-colors duration-200 bg-gray-800 cursor-default focus:outline-none bg-opacity-70 sm:rounded-t-lg ${
                       openIndexes.includes(0) && 'text-indigo-500'
+                    } ${
+                      settings.currentSettings.localLogin &&
+                      'hover:bg-gray-700 hover:cursor-pointer'
                     }`}
                     onClick={() => handleClick(0)}
+                    disabled={!settings.currentSettings.localLogin}
                   >
                     {intl.formatMessage(messages.signinwithplex)}
                   </button>
@@ -139,21 +134,28 @@ const Login: React.FC = () => {
                       />
                     </div>
                   </AccordionContent>
-                  <button
-                    className={`text-sm w-full focus:outline-none transition-colors duration-200 py-2 bg-gray-800 hover:bg-gray-700 bg-opacity-70 hover:bg-opacity-70 text-center text-gray-400 ${
-                      openIndexes.includes(1)
-                        ? 'text-indigo-500'
-                        : 'sm:rounded-b-lg '
-                    }`}
-                    onClick={() => handleClick(1)}
-                  >
-                    {intl.formatMessage(messages.signinwithoverseerr)}
-                  </button>
-                  <AccordionContent isOpen={openIndexes.includes(1)}>
-                    <div className="px-10 py-8">
-                      <LocalLogin revalidate={revalidate} />
+                  {settings.currentSettings.localLogin && (
+                    <div>
+                      <button
+                        className={`w-full py-2 text-sm text-center text-gray-400 transition-colors duration-200 bg-gray-800 cursor-default focus:outline-none bg-opacity-70 hover:bg-gray-700 hover:cursor-pointer ${
+                          openIndexes.includes(1)
+                            ? 'text-indigo-500'
+                            : 'sm:rounded-b-lg'
+                        }`}
+                        onClick={() => handleClick(1)}
+                      >
+                        {intl.formatMessage(messages.signinwithoverseerr, {
+                          applicationTitle:
+                            settings.currentSettings.applicationTitle,
+                        })}
+                      </button>
+                      <AccordionContent isOpen={openIndexes.includes(1)}>
+                        <div className="px-10 py-8">
+                          <LocalLogin revalidate={revalidate} />
+                        </div>
+                      </AccordionContent>
                     </div>
-                  </AccordionContent>
+                  )}
                 </>
               )}
             </Accordion>

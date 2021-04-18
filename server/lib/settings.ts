@@ -1,6 +1,6 @@
 import fs from 'fs';
-import path from 'path';
 import { merge } from 'lodash';
+import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { Permission } from './permissions';
 
@@ -8,6 +8,17 @@ export interface Library {
   id: string;
   name: string;
   enabled: boolean;
+}
+
+export interface Region {
+  iso_3166_1: string;
+  english_name: string;
+}
+
+export interface Language {
+  iso_639_1: string;
+  english_name: string;
+  name: string;
 }
 
 export interface PlexSettings {
@@ -19,7 +30,7 @@ export interface PlexSettings {
   libraries: Library[];
 }
 
-interface DVRSettings {
+export interface DVRSettings {
   id: number;
   name: string;
   hostname: string;
@@ -30,8 +41,12 @@ interface DVRSettings {
   activeProfileId: number;
   activeProfileName: string;
   activeDirectory: string;
+  tags: number[];
   is4k: boolean;
   isDefault: boolean;
+  externalUrl?: string;
+  syncEnabled: boolean;
+  preventSearch: boolean;
 }
 
 export interface RadarrSettings extends DVRSettings {
@@ -42,14 +57,34 @@ export interface SonarrSettings extends DVRSettings {
   activeAnimeProfileId?: number;
   activeAnimeProfileName?: string;
   activeAnimeDirectory?: string;
+  activeAnimeLanguageProfileId?: number;
+  activeLanguageProfileId?: number;
+  animeTags?: number[];
   enableSeasonFolders: boolean;
+}
+
+interface Quota {
+  quotaLimit?: number;
+  quotaDays?: number;
 }
 
 export interface MainSettings {
   apiKey: string;
+  applicationTitle: string;
   applicationUrl: string;
+  csrfProtection: boolean;
+  cacheImages: boolean;
   defaultPermissions: number;
+  defaultQuotas: {
+    movie: Quota;
+    tv: Quota;
+  };
   hideAvailable: boolean;
+  localLogin: boolean;
+  region: string;
+  originalLanguage: string;
+  trustProxy: boolean;
+  partialRequestsEnabled: boolean;
 }
 
 interface PublicSettings {
@@ -57,9 +92,15 @@ interface PublicSettings {
 }
 
 interface FullPublicSettings extends PublicSettings {
+  applicationTitle: string;
+  hideAvailable: boolean;
+  localLogin: boolean;
   movie4kEnabled: boolean;
   series4kEnabled: boolean;
-  hideAvailable: boolean;
+  region: string;
+  originalLanguage: string;
+  partialRequestsEnabled: boolean;
+  cacheImages: boolean;
 }
 
 export interface NotificationAgentConfig {
@@ -69,6 +110,8 @@ export interface NotificationAgentConfig {
 }
 export interface NotificationAgentDiscord extends NotificationAgentConfig {
   options: {
+    botUsername?: string;
+    botAvatarUrl?: string;
     webhookUrl: string;
   };
 }
@@ -89,13 +132,23 @@ export interface NotificationAgentEmail extends NotificationAgentConfig {
     authPass?: string;
     allowSelfSigned: boolean;
     senderName: string;
+    pgpPrivateKey?: string;
+    pgpPassword?: string;
   };
 }
 
 export interface NotificationAgentTelegram extends NotificationAgentConfig {
   options: {
+    botUsername?: string;
     botAPI: string;
     chatId: string;
+    sendSilently: boolean;
+  };
+}
+
+export interface NotificationAgentPushbullet extends NotificationAgentConfig {
+  options: {
+    accessToken: string;
   };
 }
 
@@ -104,7 +157,6 @@ export interface NotificationAgentPushover extends NotificationAgentConfig {
     accessToken: string;
     userToken: string;
     priority: number;
-    sound: string;
   };
 }
 
@@ -117,15 +169,17 @@ export interface NotificationAgentWebhook extends NotificationAgentConfig {
 }
 
 interface NotificationAgents {
-  email: NotificationAgentEmail;
   discord: NotificationAgentDiscord;
+  email: NotificationAgentEmail;
+  pushbullet: NotificationAgentPushbullet;
+  pushover: NotificationAgentPushover;
   slack: NotificationAgentSlack;
   telegram: NotificationAgentTelegram;
-  pushover: NotificationAgentPushover;
   webhook: NotificationAgentWebhook;
 }
 
 interface NotificationSettings {
+  enabled: boolean;
   agents: NotificationAgents;
 }
 
@@ -151,9 +205,21 @@ class Settings {
       clientId: uuidv4(),
       main: {
         apiKey: '',
+        applicationTitle: 'Overseerr',
         applicationUrl: '',
-        hideAvailable: false,
+        csrfProtection: false,
+        cacheImages: false,
         defaultPermissions: Permission.REQUEST,
+        defaultQuotas: {
+          movie: {},
+          tv: {},
+        },
+        hideAvailable: false,
+        localLogin: true,
+        region: '',
+        originalLanguage: '',
+        trustProxy: false,
+        partialRequestsEnabled: true,
       },
       plex: {
         name: '',
@@ -168,6 +234,7 @@ class Settings {
         initialized: false,
       },
       notifications: {
+        enabled: true,
         agents: {
           email: {
             enabled: false,
@@ -185,6 +252,8 @@ class Settings {
             enabled: false,
             types: 0,
             options: {
+              botUsername: '',
+              botAvatarUrl: '',
               webhookUrl: '',
             },
           },
@@ -199,8 +268,17 @@ class Settings {
             enabled: false,
             types: 0,
             options: {
+              botUsername: '',
               botAPI: '',
               chatId: '',
+              sendSilently: false,
+            },
+          },
+          pushbullet: {
+            enabled: false,
+            types: 0,
+            options: {
+              accessToken: '',
             },
           },
           pushover: {
@@ -210,7 +288,6 @@ class Settings {
               accessToken: '',
               userToken: '',
               priority: 0,
-              sound: '',
             },
           },
           webhook: {
@@ -220,7 +297,7 @@ class Settings {
               webhookUrl: '',
               authHeader: '',
               jsonPayload:
-                'IntcbiAgICBcIm5vdGlmaWNhdGlvbl90eXBlXCI6IFwie3tub3RpZmljYXRpb25fdHlwZX19XCIsXG4gICAgXCJzdWJqZWN0XCI6IFwie3tzdWJqZWN0fX1cIixcbiAgICBcIm1lc3NhZ2VcIjogXCJ7e21lc3NhZ2V9fVwiLFxuICAgIFwiaW1hZ2VcIjogXCJ7e2ltYWdlfX1cIixcbiAgICBcImVtYWlsXCI6IFwie3tub3RpZnl1c2VyX2VtYWlsfX1cIixcbiAgICBcInVzZXJuYW1lXCI6IFwie3tub3RpZnl1c2VyX3VzZXJuYW1lfX1cIixcbiAgICBcImF2YXRhclwiOiBcInt7bm90aWZ5dXNlcl9hdmF0YXJ9fVwiLFxuICAgIFwie3ttZWRpYX19XCI6IHtcbiAgICAgICAgXCJtZWRpYV90eXBlXCI6IFwie3ttZWRpYV90eXBlfX1cIixcbiAgICAgICAgXCJ0bWRiSWRcIjogXCJ7e21lZGlhX3RtZGJpZH19XCIsXG4gICAgICAgIFwiaW1kYklkXCI6IFwie3ttZWRpYV9pbWRiaWR9fVwiLFxuICAgICAgICBcInR2ZGJJZFwiOiBcInt7bWVkaWFfdHZkYmlkfX1cIixcbiAgICAgICAgXCJzdGF0dXNcIjogXCJ7e21lZGlhX3N0YXR1c319XCIsXG4gICAgICAgIFwic3RhdHVzNGtcIjogXCJ7e21lZGlhX3N0YXR1czRrfX1cIlxuICAgIH0sXG4gICAgXCJ7e2V4dHJhfX1cIjogW11cbn0i',
+                'IntcbiAgICBcIm5vdGlmaWNhdGlvbl90eXBlXCI6IFwie3tub3RpZmljYXRpb25fdHlwZX19XCIsXG4gICAgXCJzdWJqZWN0XCI6IFwie3tzdWJqZWN0fX1cIixcbiAgICBcIm1lc3NhZ2VcIjogXCJ7e21lc3NhZ2V9fVwiLFxuICAgIFwiaW1hZ2VcIjogXCJ7e2ltYWdlfX1cIixcbiAgICBcImVtYWlsXCI6IFwie3tub3RpZnl1c2VyX2VtYWlsfX1cIixcbiAgICBcInVzZXJuYW1lXCI6IFwie3tub3RpZnl1c2VyX3VzZXJuYW1lfX1cIixcbiAgICBcImF2YXRhclwiOiBcInt7bm90aWZ5dXNlcl9hdmF0YXJ9fVwiLFxuICAgIFwie3ttZWRpYX19XCI6IHtcbiAgICAgICAgXCJtZWRpYV90eXBlXCI6IFwie3ttZWRpYV90eXBlfX1cIixcbiAgICAgICAgXCJ0bWRiSWRcIjogXCJ7e21lZGlhX3RtZGJpZH19XCIsXG4gICAgICAgIFwiaW1kYklkXCI6IFwie3ttZWRpYV9pbWRiaWR9fVwiLFxuICAgICAgICBcInR2ZGJJZFwiOiBcInt7bWVkaWFfdHZkYmlkfX1cIixcbiAgICAgICAgXCJzdGF0dXNcIjogXCJ7e21lZGlhX3N0YXR1c319XCIsXG4gICAgICAgIFwic3RhdHVzNGtcIjogXCJ7e21lZGlhX3N0YXR1czRrfX1cIlxuICAgIH0sXG4gICAgXCJ7e2V4dHJhfX1cIjogW10sXG4gICAgXCJ7e3JlcXVlc3R9fVwiOiB7XG4gICAgICAgIFwicmVxdWVzdF9pZFwiOiBcInt7cmVxdWVzdF9pZH19XCIsXG4gICAgICAgIFwicmVxdWVzdGVkQnlfZW1haWxcIjogXCJ7e3JlcXVlc3RlZEJ5X2VtYWlsfX1cIixcbiAgICAgICAgXCJyZXF1ZXN0ZWRCeV91c2VybmFtZVwiOiBcInt7cmVxdWVzdGVkQnlfdXNlcm5hbWV9fVwiLFxuICAgICAgICBcInJlcXVlc3RlZEJ5X2F2YXRhclwiOiBcInt7cmVxdWVzdGVkQnlfYXZhdGFyfX1cIlxuICAgIH1cbn0i',
             },
           },
         },
@@ -278,13 +355,19 @@ class Settings {
   get fullPublicSettings(): FullPublicSettings {
     return {
       ...this.data.public,
+      applicationTitle: this.data.main.applicationTitle,
+      hideAvailable: this.data.main.hideAvailable,
+      localLogin: this.data.main.localLogin,
       movie4kEnabled: this.data.radarr.some(
         (radarr) => radarr.is4k && radarr.isDefault
       ),
       series4kEnabled: this.data.sonarr.some(
         (sonarr) => sonarr.is4k && sonarr.isDefault
       ),
-      hideAvailable: this.data.main.hideAvailable,
+      region: this.data.main.region,
+      originalLanguage: this.data.main.originalLanguage,
+      partialRequestsEnabled: this.data.main.partialRequestsEnabled,
+      cacheImages: this.data.main.cacheImages,
     };
   }
 

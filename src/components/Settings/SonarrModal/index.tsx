@@ -1,51 +1,81 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import Transition from '../../Transition';
-import Modal from '../../Common/Modal';
-import { Formik, Field } from 'formik';
-import type { SonarrSettings } from '../../../../server/lib/settings';
-import * as Yup from 'yup';
+import { PencilIcon, PlusIcon } from '@heroicons/react/solid';
 import axios from 'axios';
+import { Field, Formik } from 'formik';
+import dynamic from 'next/dynamic';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { defineMessages, useIntl } from 'react-intl';
+import type { OptionsType, OptionTypeBase } from 'react-select';
 import { useToasts } from 'react-toast-notifications';
-import { useIntl, defineMessages } from 'react-intl';
+import * as Yup from 'yup';
+import type { SonarrSettings } from '../../../../server/lib/settings';
+import globalMessages from '../../../i18n/globalMessages';
+import Modal from '../../Common/Modal';
+import Transition from '../../Transition';
+
+type OptionType = {
+  value: string;
+  label: string;
+};
+
+const Select = dynamic(() => import('react-select'), { ssr: false });
 
 const messages = defineMessages({
-  createsonarr: 'Create New Sonarr Server',
+  createsonarr: 'Add New Sonarr Server',
+  create4ksonarr: 'Add New 4K Sonarr Server',
   editsonarr: 'Edit Sonarr Server',
+  edit4ksonarr: 'Edit 4K Sonarr Server',
   validationNameRequired: 'You must provide a server name',
-  validationHostnameRequired: 'You must provide a hostname/IP',
-  validationPortRequired: 'You must provide a port',
+  validationHostnameRequired: 'You must provide a hostname or IP address',
+  validationPortRequired: 'You must provide a valid port number',
   validationApiKeyRequired: 'You must provide an API key',
   validationRootFolderRequired: 'You must select a root folder',
-  validationProfileRequired: 'You must select a profile',
-  toastRadarrTestSuccess: 'Sonarr connection established!',
-  toastRadarrTestFailure: 'Failed to connect to Sonarr Server',
-  saving: 'Saving...',
-  save: 'Save Changes',
+  validationProfileRequired: 'You must select a quality profile',
+  validationLanguageProfileRequired: 'You must select a language profile',
+  toastSonarrTestSuccess: 'Sonarr connection established successfully!',
+  toastSonarrTestFailure: 'Failed to connect to Sonarr.',
   add: 'Add Server',
-  test: 'Test',
-  testing: 'Testing...',
   defaultserver: 'Default Server',
+  default4kserver: 'Default 4K Server',
   servername: 'Server Name',
   servernamePlaceholder: 'A Sonarr Server',
-  hostname: 'Hostname',
+  hostname: 'Hostname or IP Address',
   port: 'Port',
-  ssl: 'SSL',
+  ssl: 'Enable SSL',
   apiKey: 'API Key',
-  apiKeyPlaceholder: 'Your Sonarr API Key',
+  apiKeyPlaceholder: 'Your Sonarr API key',
   baseUrl: 'Base URL',
   baseUrlPlaceholder: 'Example: /sonarr',
   qualityprofile: 'Quality Profile',
+  languageprofile: 'Language Profile',
   rootfolder: 'Root Folder',
   animequalityprofile: 'Anime Quality Profile',
+  animelanguageprofile: 'Anime Language Profile',
   animerootfolder: 'Anime Root Folder',
   seasonfolders: 'Season Folders',
   server4k: '4K Server',
-  selectQualityProfile: 'Select a Quality Profile',
-  selectRootFolder: 'Select a Root Folder',
+  selectQualityProfile: 'Select quality profile',
+  selectRootFolder: 'Select root folder',
+  selectLanguageProfile: 'Select language profile',
   loadingprofiles: 'Loading quality profiles…',
-  testFirstQualityProfiles: 'Test your connection to load quality profiles',
+  testFirstQualityProfiles: 'Test connection to load quality profiles',
   loadingrootfolders: 'Loading root folders…',
-  testFirstRootFolders: 'Test your connection to load root folders',
+  testFirstRootFolders: 'Test connection to load root folders',
+  loadinglanguageprofiles: 'Loading language profiles…',
+  testFirstLanguageProfiles: 'Test connection to load language profiles',
+  loadingTags: 'Loading tags…',
+  testFirstTags: 'Test connection to load tags',
+  syncEnabled: 'Enable Scan',
+  externalUrl: 'External URL',
+  externalUrlPlaceholder: 'External URL pointing to your Sonarr server',
+  preventSearch: 'Disable Auto-Search',
+  validationApplicationUrl: 'You must provide a valid URL',
+  validationApplicationUrlTrailingSlash: 'URL must not end in a trailing slash',
+  validationBaseUrlLeadingSlash: 'Base URL must have a leading slash',
+  validationBaseUrlTrailingSlash: 'Base URL must not end in a trailing slash',
+  tags: 'Tags',
+  animeTags: 'Anime Tags',
+  notagoptions: 'No tags.',
+  selecttags: 'Select tags',
 });
 
 interface TestResponse {
@@ -56,6 +86,14 @@ interface TestResponse {
   rootFolders: {
     id: number;
     path: string;
+  }[];
+  languageProfiles: {
+    id: number;
+    name: string;
+  }[];
+  tags: {
+    id: number;
+    label: string;
   }[];
 }
 
@@ -78,17 +116,22 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
   const [testResponse, setTestResponse] = useState<TestResponse>({
     profiles: [],
     rootFolders: [],
+    languageProfiles: [],
+    tags: [],
   });
   const SonarrSettingsSchema = Yup.object().shape({
     name: Yup.string().required(
       intl.formatMessage(messages.validationNameRequired)
     ),
-    hostname: Yup.string().required(
-      intl.formatMessage(messages.validationHostnameRequired)
-    ),
-    port: Yup.number().required(
-      intl.formatMessage(messages.validationPortRequired)
-    ),
+    hostname: Yup.string()
+      .required(intl.formatMessage(messages.validationHostnameRequired))
+      .matches(
+        /^(([a-z]|\d|_|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])([a-z]|\d|-|\.|_|~|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])*)?([a-z]|\d|[\u00A0-\uD7FF\uF900-\uFDCF\uFDF0-\uFFEF])$/i,
+        intl.formatMessage(messages.validationHostnameRequired)
+      ),
+    port: Yup.number()
+      .typeError(intl.formatMessage(messages.validationPortRequired))
+      .required(intl.formatMessage(messages.validationPortRequired)),
     apiKey: Yup.string().required(
       intl.formatMessage(messages.validationApiKeyRequired)
     ),
@@ -98,6 +141,42 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
     activeProfileId: Yup.string().required(
       intl.formatMessage(messages.validationProfileRequired)
     ),
+    activeLanguageProfileId: Yup.number().required(
+      intl.formatMessage(messages.validationLanguageProfileRequired)
+    ),
+    externalUrl: Yup.string()
+      .url(intl.formatMessage(messages.validationApplicationUrl))
+      .test(
+        'no-trailing-slash',
+        intl.formatMessage(messages.validationApplicationUrlTrailingSlash),
+        (value) => {
+          if (value?.substr(value.length - 1) === '/') {
+            return false;
+          }
+          return true;
+        }
+      ),
+    baseUrl: Yup.string()
+      .test(
+        'leading-slash',
+        intl.formatMessage(messages.validationBaseUrlLeadingSlash),
+        (value) => {
+          if (value && value?.substr(0, 1) !== '/') {
+            return false;
+          }
+          return true;
+        }
+      )
+      .test(
+        'no-trailing-slash',
+        intl.formatMessage(messages.validationBaseUrlTrailingSlash),
+        (value) => {
+          if (value?.substr(value.length - 1) === '/') {
+            return false;
+          }
+          return true;
+        }
+      ),
   });
 
   const testConnection = useCallback(
@@ -130,7 +209,7 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
         setIsValidated(true);
         setTestResponse(response.data);
         if (initialLoad.current) {
-          addToast('Sonarr connection established!', {
+          addToast(intl.formatMessage(messages.toastSonarrTestSuccess), {
             appearance: 'success',
             autoDismiss: true,
           });
@@ -138,7 +217,7 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
       } catch (e) {
         setIsValidated(false);
         if (initialLoad.current) {
-          addToast('Failed to connect to Sonarr server', {
+          addToast(intl.formatMessage(messages.toastSonarrTestFailure), {
             appearance: 'error',
             autoDismiss: true,
           });
@@ -148,7 +227,7 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
         initialLoad.current = true;
       }
     },
-    [addToast]
+    [addToast, intl]
   );
 
   useEffect(() => {
@@ -183,12 +262,19 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
           apiKey: sonarr?.apiKey,
           baseUrl: sonarr?.baseUrl,
           activeProfileId: sonarr?.activeProfileId,
+          activeLanguageProfileId: sonarr?.activeLanguageProfileId,
           rootFolder: sonarr?.activeDirectory,
           activeAnimeProfileId: sonarr?.activeAnimeProfileId,
+          activeAnimeLanguageProfileId: sonarr?.activeAnimeLanguageProfileId,
           activeAnimeRootFolder: sonarr?.activeAnimeDirectory,
+          tags: sonarr?.tags ?? [],
+          animeTags: sonarr?.animeTags ?? [],
           isDefault: sonarr?.isDefault ?? false,
           is4k: sonarr?.is4k ?? false,
           enableSeasonFolders: sonarr?.enableSeasonFolders ?? false,
+          externalUrl: sonarr?.externalUrl,
+          syncEnabled: sonarr?.syncEnabled ?? false,
+          preventSearch: sonarr?.preventSearch ?? false,
         }}
         validationSchema={SonarrSettingsSchema}
         onSubmit={async (values) => {
@@ -208,16 +294,27 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
               useSsl: values.ssl,
               baseUrl: values.baseUrl,
               activeProfileId: Number(values.activeProfileId),
+              activeLanguageProfileId: values.activeLanguageProfileId
+                ? Number(values.activeLanguageProfileId)
+                : undefined,
               activeProfileName: profileName,
               activeDirectory: values.rootFolder,
               activeAnimeProfileId: values.activeAnimeProfileId
                 ? Number(values.activeAnimeProfileId)
                 : undefined,
+              activeAnimeLanguageProfileId: values.activeAnimeLanguageProfileId
+                ? Number(values.activeAnimeLanguageProfileId)
+                : undefined,
               activeAnimeProfileName: animeProfileName ?? undefined,
               activeAnimeDirectory: values.activeAnimeRootFolder,
+              tags: values.tags,
+              animeTags: values.animeTags,
               is4k: values.is4k,
               isDefault: values.isDefault,
               enableSeasonFolders: values.enableSeasonFolders,
+              externalUrl: values.externalUrl,
+              syncEnabled: values.syncEnabled,
+              preventSearch: values.preventSearch,
             };
             if (!sonarr) {
               await axios.post('/api/v1/settings/sonarr', submission);
@@ -249,16 +346,16 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
               okButtonType="primary"
               okText={
                 isSubmitting
-                  ? intl.formatMessage(messages.saving)
+                  ? intl.formatMessage(globalMessages.saving)
                   : sonarr
-                  ? intl.formatMessage(messages.save)
+                  ? intl.formatMessage(globalMessages.save)
                   : intl.formatMessage(messages.add)
               }
               secondaryButtonType="warning"
               secondaryText={
                 isTesting
-                  ? intl.formatMessage(messages.testing)
-                  : intl.formatMessage(messages.test)
+                  ? intl.formatMessage(globalMessages.testing)
+                  : intl.formatMessage(globalMessages.test)
               }
               onSecondary={() => {
                 if (values.apiKey && values.hostname && values.port) {
@@ -272,43 +369,61 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                 }
               }}
               secondaryDisabled={
-                !values.apiKey || !values.hostname || !values.port || isTesting
+                !values.apiKey ||
+                !values.hostname ||
+                !values.port ||
+                isTesting ||
+                isSubmitting
               }
               okDisabled={!isValidated || isSubmitting || isTesting || !isValid}
               onOk={() => handleSubmit()}
               title={
                 !sonarr
-                  ? intl.formatMessage(messages.createsonarr)
-                  : intl.formatMessage(messages.editsonarr)
+                  ? intl.formatMessage(
+                      values.is4k
+                        ? messages.create4ksonarr
+                        : messages.createsonarr
+                    )
+                  : intl.formatMessage(
+                      values.is4k ? messages.edit4ksonarr : messages.editsonarr
+                    )
+              }
+              iconSvg={
+                !sonarr ? (
+                  <PlusIcon className="w-6 h-6" />
+                ) : (
+                  <PencilIcon className="w-6 h-6" />
+                )
               }
             >
               <div className="mb-6">
-                <div className="sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="isDefault"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.defaultserver)}
+                <div className="form-row">
+                  <label htmlFor="isDefault" className="checkbox-label">
+                    {intl.formatMessage(
+                      values.is4k
+                        ? messages.default4kserver
+                        : messages.defaultserver
+                    )}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <Field
-                      type="checkbox"
-                      id="isDefault"
-                      name="isDefault"
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
-                    />
+                  <div className="form-input">
+                    <Field type="checkbox" id="isDefault" name="isDefault" />
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="name"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.servername)}
-                    <span className="text-red-500">*</span>
+                <div className="form-row">
+                  <label htmlFor="is4k" className="checkbox-label">
+                    {intl.formatMessage(messages.server4k)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <Field type="checkbox" id="is4k" name="is4k" />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="name" className="text-label">
+                    {intl.formatMessage(messages.servername)}
+                    <span className="label-required">*</span>
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="name"
                         name="name"
@@ -320,25 +435,21 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('name', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.name && touched.name && (
-                      <div className="mt-2 text-red-500">{errors.name}</div>
+                      <div className="error">{errors.name}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="hostname"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="hostname" className="text-label">
                     {intl.formatMessage(messages.hostname)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
-                      <span className="inline-flex items-center px-3 text-gray-100 bg-gray-600 border border-r-0 border-gray-500 cursor-default rounded-l-md sm:text-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <span className="protocol">
                         {values.ssl ? 'https://' : 'http://'}
                       </span>
                       <Field
@@ -350,47 +461,41 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('hostname', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 form-input rounded-r-md sm:text-sm sm:leading-5"
+                        className="rounded-r-only"
                       />
                     </div>
                     {errors.hostname && touched.hostname && (
-                      <div className="mt-2 text-red-500">{errors.hostname}</div>
+                      <div className="error">{errors.hostname}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="port"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="port" className="text-label">
                     {intl.formatMessage(messages.port)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
                     <Field
                       id="port"
                       name="port"
                       type="text"
                       placeholder="8989"
+                      className="short"
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                         setIsValidated(false);
                         setFieldValue('port', e.target.value);
                       }}
-                      className="block w-24 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md shadow-sm form-input sm:text-sm sm:leading-5"
                     />
                     {errors.port && touched.port && (
-                      <div className="mt-2 text-red-500">{errors.port}</div>
+                      <div className="error">{errors.port}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="ssl"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="ssl" className="checkbox-label">
                     {intl.formatMessage(messages.ssl)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
                     <Field
                       type="checkbox"
                       id="ssl"
@@ -399,20 +504,16 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                         setIsValidated(false);
                         setFieldValue('ssl', !values.ssl);
                       }}
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
                     />
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="apiKey"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="apiKey" className="text-label">
                     {intl.formatMessage(messages.apiKey)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="apiKey"
                         name="apiKey"
@@ -424,23 +525,19 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('apiKey', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.apiKey && touched.apiKey && (
-                      <div className="mt-2 text-red-500">{errors.apiKey}</div>
+                      <div className="error">{errors.apiKey}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="baseUrl"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="baseUrl" className="text-label">
                     {intl.formatMessage(messages.baseUrl)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         id="baseUrl"
                         name="baseUrl"
@@ -452,30 +549,25 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                           setIsValidated(false);
                           setFieldValue('baseUrl', e.target.value);
                         }}
-                        className="flex-1 block w-full min-w-0 transition duration-150 ease-in-out bg-gray-700 border border-gray-500 rounded-md form-input sm:text-sm sm:leading-5"
                       />
                     </div>
                     {errors.baseUrl && touched.baseUrl && (
-                      <div className="mt-2 text-red-500">{errors.baseUrl}</div>
+                      <div className="error">{errors.baseUrl}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="activeProfileId"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="activeProfileId" className="text-label">
                     {intl.formatMessage(messages.qualityprofile)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="activeProfileId"
                         name="activeProfileId"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -498,28 +590,22 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                       </Field>
                     </div>
                     {errors.activeProfileId && touched.activeProfileId && (
-                      <div className="mt-2 text-red-500">
-                        {errors.activeProfileId}
-                      </div>
+                      <div className="error">{errors.activeProfileId}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="rootFolder"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="rootFolder" className="text-label">
                     {intl.formatMessage(messages.rootfolder)}
-                    <span className="text-red-500">*</span>
+                    <span className="label-required">*</span>
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="rootFolder"
                         name="rootFolder"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -540,27 +626,125 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                       </Field>
                     </div>
                     {errors.rootFolder && touched.rootFolder && (
-                      <div className="mt-2 text-red-500">
-                        {errors.rootFolder}
-                      </div>
+                      <div className="error">{errors.rootFolder}</div>
                     )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
+                <div className="form-row">
                   <label
-                    htmlFor="activeAnimeProfileId"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
+                    htmlFor="activeLanguageProfileId"
+                    className="text-label"
                   >
+                    {intl.formatMessage(messages.languageprofile)}
+                    <span className="label-required">*</span>
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <Field
+                        as="select"
+                        id="activeLanguageProfileId"
+                        name="activeLanguageProfileId"
+                        disabled={!isValidated || isTesting}
+                      >
+                        <option value="">
+                          {isTesting
+                            ? intl.formatMessage(
+                                messages.loadinglanguageprofiles
+                              )
+                            : !isValidated
+                            ? intl.formatMessage(
+                                messages.testFirstLanguageProfiles
+                              )
+                            : intl.formatMessage(
+                                messages.selectLanguageProfile
+                              )}
+                        </option>
+                        {testResponse.languageProfiles.length > 0 &&
+                          testResponse.languageProfiles.map((language) => (
+                            <option
+                              key={`loaded-profile-${language.id}`}
+                              value={language.id}
+                            >
+                              {language.name}
+                            </option>
+                          ))}
+                      </Field>
+                    </div>
+                    {errors.activeLanguageProfileId &&
+                      touched.activeLanguageProfileId && (
+                        <div className="error">
+                          {errors.activeLanguageProfileId}
+                        </div>
+                      )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="tags" className="text-label">
+                    {intl.formatMessage(messages.tags)}
+                  </label>
+                  <div className="form-input">
+                    <Select
+                      options={
+                        isValidated
+                          ? testResponse.tags.map((tag) => ({
+                              label: tag.label,
+                              value: tag.id,
+                            }))
+                          : []
+                      }
+                      isMulti
+                      isDisabled={!isValidated || isTesting}
+                      placeholder={
+                        !isValidated
+                          ? intl.formatMessage(messages.testFirstTags)
+                          : isTesting
+                          ? intl.formatMessage(messages.loadingTags)
+                          : intl.formatMessage(messages.selecttags)
+                      }
+                      isLoading={isTesting}
+                      className="react-select-container"
+                      classNamePrefix="react-select"
+                      value={
+                        isTesting
+                          ? []
+                          : values.tags.map((tagId) => {
+                              const foundTag = testResponse.tags.find(
+                                (tag) => tag.id === tagId
+                              );
+                              return {
+                                value: foundTag?.id,
+                                label: foundTag?.label,
+                              };
+                            })
+                      }
+                      onChange={(
+                        value: OptionTypeBase | OptionsType<OptionType> | null
+                      ) => {
+                        if (!Array.isArray(value)) {
+                          return;
+                        }
+                        setFieldValue(
+                          'tags',
+                          value?.map((option) => option.value)
+                        );
+                      }}
+                      noOptionsMessage={() =>
+                        intl.formatMessage(messages.notagoptions)
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="activeAnimeProfileId" className="text-label">
                     {intl.formatMessage(messages.animequalityprofile)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="activeAnimeProfileId"
                         name="activeAnimeProfileId"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -584,27 +768,23 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                     </div>
                     {errors.activeAnimeProfileId &&
                       touched.activeAnimeProfileId && (
-                        <div className="mt-2 text-red-500">
+                        <div className="error">
                           {errors.activeAnimeProfileId}
                         </div>
                       )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-800">
-                  <label
-                    htmlFor="activeAnimeRootFolder"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
+                <div className="form-row">
+                  <label htmlFor="activeAnimeRootFolder" className="text-label">
                     {intl.formatMessage(messages.animerootfolder)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <div className="flex max-w-lg rounded-md shadow-sm">
+                  <div className="form-input">
+                    <div className="form-input-field">
                       <Field
                         as="select"
                         id="activeAnimeRootFolder"
                         name="activeAnimeRootFolder"
                         disabled={!isValidated || isTesting}
-                        className="block w-full py-2 pl-3 pr-10 mt-1 text-base leading-6 bg-gray-700 border-gray-500 rounded-md form-select focus:outline-none focus:ring-blue focus:border-gray-500 sm:text-sm sm:leading-5 disabled:opacity-50"
                       >
                         <option value="">
                           {isTesting
@@ -626,41 +806,169 @@ const SonarrModal: React.FC<SonarrModalProps> = ({
                     </div>
                     {errors.activeAnimeRootFolder &&
                       touched.activeAnimeRootFolder && (
-                        <div className="mt-2 text-red-500">
-                          {errors.rootFolder}
+                        <div className="error">{errors.rootFolder}</div>
+                      )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label
+                    htmlFor="activeAnimeLanguageProfileId"
+                    className="text-label"
+                  >
+                    {intl.formatMessage(messages.animelanguageprofile)}
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <Field
+                        as="select"
+                        id="activeAnimeLanguageProfileId"
+                        name="activeAnimeLanguageProfileId"
+                        disabled={!isValidated || isTesting}
+                      >
+                        <option value="">
+                          {isTesting
+                            ? intl.formatMessage(
+                                messages.loadinglanguageprofiles
+                              )
+                            : !isValidated
+                            ? intl.formatMessage(
+                                messages.testFirstLanguageProfiles
+                              )
+                            : intl.formatMessage(
+                                messages.selectLanguageProfile
+                              )}
+                        </option>
+                        {testResponse.languageProfiles.length > 0 &&
+                          testResponse.languageProfiles.map((language) => (
+                            <option
+                              key={`loaded-profile-${language.id}`}
+                              value={language.id}
+                            >
+                              {language.name}
+                            </option>
+                          ))}
+                      </Field>
+                    </div>
+                    {errors.activeAnimeLanguageProfileId &&
+                      touched.activeAnimeLanguageProfileId && (
+                        <div className="error">
+                          {errors.activeAnimeLanguageProfileId}
                         </div>
                       )}
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
-                  <label
-                    htmlFor="is4k"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
-                  >
-                    {intl.formatMessage(messages.server4k)}
+                <div className="form-row">
+                  <label htmlFor="tags" className="text-label">
+                    {intl.formatMessage(messages.animeTags)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
-                    <Field
-                      type="checkbox"
-                      id="is4k"
-                      name="is4k"
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
+                  <div className="form-input">
+                    <Select
+                      options={
+                        isValidated
+                          ? testResponse.tags.map((tag) => ({
+                              label: tag.label,
+                              value: tag.id,
+                            }))
+                          : []
+                      }
+                      isMulti
+                      isDisabled={!isValidated}
+                      placeholder={
+                        !isValidated
+                          ? intl.formatMessage(messages.testFirstTags)
+                          : isTesting
+                          ? intl.formatMessage(messages.loadingTags)
+                          : intl.formatMessage(messages.selecttags)
+                      }
+                      isLoading={isTesting}
+                      className="react-select-container"
+                      classNamePrefix="react-select"
+                      value={
+                        isTesting
+                          ? []
+                          : values.animeTags.map((tagId) => {
+                              const foundTag = testResponse.tags.find(
+                                (tag) => tag.id === tagId
+                              );
+                              return {
+                                value: foundTag?.id,
+                                label: foundTag?.label,
+                              };
+                            })
+                      }
+                      onChange={(
+                        value: OptionTypeBase | OptionsType<OptionType> | null
+                      ) => {
+                        if (!Array.isArray(value)) {
+                          return;
+                        }
+                        setFieldValue(
+                          'animeTags',
+                          value?.map((option) => option.value)
+                        );
+                      }}
+                      noOptionsMessage={() =>
+                        intl.formatMessage(messages.notagoptions)
+                      }
                     />
                   </div>
                 </div>
-                <div className="mt-6 sm:mt-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:items-start sm:border-t sm:border-gray-200">
+                <div className="form-row">
                   <label
                     htmlFor="enableSeasonFolders"
-                    className="block text-sm font-medium leading-5 text-gray-400 sm:mt-px"
+                    className="checkbox-label"
                   >
                     {intl.formatMessage(messages.seasonfolders)}
                   </label>
-                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                  <div className="form-input">
                     <Field
                       type="checkbox"
                       id="enableSeasonFolders"
                       name="enableSeasonFolders"
-                      className="w-6 h-6 text-indigo-600 transition duration-150 ease-in-out rounded-md form-checkbox"
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="externalUrl" className="text-label">
+                    {intl.formatMessage(messages.externalUrl)}
+                  </label>
+                  <div className="form-input">
+                    <div className="form-input-field">
+                      <Field
+                        id="externalUrl"
+                        name="externalUrl"
+                        type="text"
+                        placeholder={intl.formatMessage(
+                          messages.externalUrlPlaceholder
+                        )}
+                      />
+                    </div>
+                    {errors.externalUrl && touched.externalUrl && (
+                      <div className="error">{errors.externalUrl}</div>
+                    )}
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="syncEnabled" className="checkbox-label">
+                    {intl.formatMessage(messages.syncEnabled)}
+                  </label>
+                  <div className="form-input">
+                    <Field
+                      type="checkbox"
+                      id="syncEnabled"
+                      name="syncEnabled"
+                    />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="preventSearch" className="checkbox-label">
+                    {intl.formatMessage(messages.preventSearch)}
+                  </label>
+                  <div className="mt-1 sm:mt-0 sm:col-span-2">
+                    <Field
+                      type="checkbox"
+                      id="preventSearch"
+                      name="preventSearch"
                     />
                   </div>
                 </div>
