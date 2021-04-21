@@ -62,6 +62,8 @@ const messages = defineMessages({
   validationpasswordminchars:
     'Password is too short; should be a minimum of 8 characters',
   usercreatedfailed: 'Something went wrong while creating the user.',
+  usercreatedfailedexisting:
+    'The provided email address is already in use by another user.',
   usercreatedsuccess: 'User created successfully!',
   email: 'Email Address',
   password: 'Password',
@@ -305,10 +307,17 @@ const UserList: React.FC = () => {
               });
               setCreateModal({ isOpen: false });
             } catch (e) {
-              addToast(intl.formatMessage(messages.usercreatedfailed), {
-                appearance: 'error',
-                autoDismiss: true,
-              });
+              addToast(
+                intl.formatMessage(
+                  e.response.data.errors?.includes('USER_EXISTS')
+                    ? messages.usercreatedfailedexisting
+                    : messages.usercreatedfailed
+                ),
+                {
+                  appearance: 'error',
+                  autoDismiss: true,
+                }
+              );
             } finally {
               revalidate();
             }
@@ -436,9 +445,9 @@ const UserList: React.FC = () => {
       <div className="flex flex-col justify-between lg:items-end lg:flex-row">
         <Header>{intl.formatMessage(messages.userlist)}</Header>
         <div className="flex flex-col flex-grow mt-2 lg:flex-row lg:flex-grow-0">
-          <div className="flex flex-row justify-between flex-grow mb-2 lg:mb-0 lg:flex-grow-0">
+          <div className="flex flex-col justify-between flex-grow mb-2 sm:flex-row lg:mb-0 lg:flex-grow-0">
             <Button
-              className="flex-grow mr-2 outline"
+              className="flex-grow mb-2 sm:mb-0 sm:mr-2 outline"
               buttonType="primary"
               onClick={() => setCreateModal({ isOpen: true })}
             >
